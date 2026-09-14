@@ -1,6 +1,6 @@
 import{createClient}from'@supabase/supabase-js';
 import{createIcons,icons}from'lucide';
-import{calculateSummary,money,safeText}from'./data.js';
+import{authCredentials,calculateSummary,money,safeText}from'./data.js';
 import'./styles.css';
 
 const pages=[['Home','LayoutDashboard'],['Fatture','FileText'],['Email','Mail'],['Entrate','TrendingUp'],['Spese','TrendingDown'],['Banca','Landmark'],['Riepilogo','Rows3'],['Scadenze','CalendarClock'],['Statistiche','ChartNoAxesCombined'],['Backup','DatabaseBackup'],['Impostazioni','Settings']];
@@ -30,11 +30,14 @@ function authView(){
   draw();if(!cloudReady)return;
   const form=document.querySelector('#auth-form');
   form.onsubmit=e=>authenticate(e,false);
-  document.querySelector('#signup').onclick=()=>authenticate({preventDefault(){},currentTarget:form},true);
+  document.querySelector('#signup').onclick=()=>{if(form.reportValidity())authenticate({preventDefault(){},currentTarget:form},true)};
 }
 async function authenticate(event,signup){
   event.preventDefault();state.error='';const form=event.currentTarget;
-  const{email,password}=Object.fromEntries(new FormData(form));
+  if(!form.reportValidity())return;
+  const credentials=authCredentials(Object.fromEntries(new FormData(form)));
+  if(credentials.error){state.error=credentials.error;authView();return}
+  const{email,password}=credentials;
   const result=signup?await supabase.auth.signUp({email,password,options:{emailRedirectTo:window.location.origin}}):await supabase.auth.signInWithPassword({email,password});
   if(result.error){state.error=result.error.message;authView()}else if(signup&&!result.data.session){state.error='Account creato. Controlla la tua email per confermare l’accesso.';authView()}
 }

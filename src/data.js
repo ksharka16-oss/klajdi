@@ -8,3 +8,7 @@ export function calculateSummary(transactions,invoices,month=monthKey()){
   return{income,expenses,balance,unpaid,review,savings:income-expenses};
 }
 export const safeText=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+export function authCredentials(values={}){
+  const email=String(values.email||'').trim(),password=String(values.password||'');
+  return email&&password?{email,password}:{error:'Inserisci email e password.'};
+}
