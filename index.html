@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0b1020" />
+    <title>SOLDI — Gestione finanziaria</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand"><span>◒</span> SOLDI</div>
+        <nav id="nav" aria-label="Navigazione principale"></nav>
+        <div class="sidebar-foot">Dati salvati sul dispositivo<br><span id="storage-status">Pronto</span></div>
+      </aside>
+      <main>
+        <header><button class="menu" id="menu" aria-label="Apri menu">☰</button><div><p class="eyebrow">GESTIONE FINANZIARIA</p><h1 id="page-title">Home</h1></div><button class="outline" id="export">Esporta backup</button></header>
+        <section id="content"></section>
+      </main>
+    </div>
+    <input id="import-file" type="file" accept="application/json" hidden />
+    <script src="app.js"></script>
+  </body>
+</html>
