@@ -1,13 +1,13 @@
 import{createClient}from'@supabase/supabase-js';
 import{createIcons,icons}from'lucide';
-import{authCredentials,calculateSummary,money,safeText}from'./data.js';
+import{authCredentials,authErrorMessage,calculateSummary,money,safeText}from'./data.js';
 import'./styles.css';
 
 const pages=[['Home','LayoutDashboard'],['Fatture','FileText'],['Email','Mail'],['Entrate','TrendingUp'],['Spese','TrendingDown'],['Banca','Landmark'],['Riepilogo','Rows3'],['Scadenze','CalendarClock'],['Statistiche','ChartNoAxesCombined'],['Backup','DatabaseBackup'],['Impostazioni','Settings']];
 const envUrl=import.meta.env.VITE_SUPABASE_URL,envKey=import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY||import.meta.env.VITE_SUPABASE_ANON_KEY;
 const cloudReady=Boolean(envUrl&&envKey&&!envUrl.includes('YOUR_PROJECT'));
 const supabase=cloudReady?createClient(envUrl,envKey):null;
-const state={page:'Home',session:null,transactions:[],invoices:[],categories:[],busy:false,error:''};
+const state={page:'Home',session:null,transactions:[],invoices:[],categories:[],busy:false,error:'',authEmail:''};
 const app=document.querySelector('#app'),ico=n=>`<i data-lucide="${n}" aria-hidden="true"></i>`,draw=()=>createIcons({icons});
 const date=v=>v?new Date(`${v}T00:00:00`).toLocaleDateString('it-IT'):'—';
 const status=s=>({paid:'PAGATA',to_pay:'DA PAGARE',to_review:'DA CONTROLLARE'}[s]||s);
@@ -26,7 +26,7 @@ async function loadData(){
 }
 
 function authView(){
-  app.innerHTML=`<main class="auth-shell"><section class="auth-card"><div class="brand large"><span>${ico('WalletCards')}</span>SOLDI</div><p class="kicker">IL TUO SPAZIO FINANZIARIO</p><h1>Tutto sotto controllo.</h1><p class="auth-copy">Accedi per gestire entrate, spese, fatture e scadenze in uno spazio personale protetto.</p>${!cloudReady?'<div class="alert warning">Configurazione cloud non completata. Aggiungi le variabili Supabase al progetto Vercel.</div>':''}${state.error?`<div class="alert">${safeText(state.error)}</div>`:''}<form id="auth-form"><label>Email<input type="email" name="email" autocomplete="email" required></label><label>Password<input type="password" name="password" autocomplete="current-password" minlength="8" required></label><button class="primary wide" ${!cloudReady?'disabled':''}>Accedi</button><button class="secondary wide" type="button" id="signup" ${!cloudReady?'disabled':''}>Crea account</button></form><p class="legal">I dati sono separati per utente tramite policy di sicurezza del database.</p></section></main>`;
+  app.innerHTML=`<main class="auth-shell"><section class="auth-card"><div class="brand large"><span>${ico('WalletCards')}</span>SOLDI</div><p class="kicker">IL TUO SPAZIO FINANZIARIO</p><h1>Tutto sotto controllo.</h1><p class="auth-copy">Accedi per gestire entrate, spese, fatture e scadenze in uno spazio personale protetto.</p>${!cloudReady?'<div class="alert warning">Configurazione cloud non completata. Aggiungi le variabili Supabase al progetto Vercel.</div>':''}${state.error?`<div class="alert">${safeText(state.error)}</div>`:''}<form id="auth-form"><label>Email<input type="email" name="email" autocomplete="email" value="${safeText(state.authEmail)}" required></label><label>Password<input type="password" name="password" autocomplete="current-password" minlength="8" required></label><button class="primary wide" ${!cloudReady?'disabled':''}>Accedi con account esistente</button><button class="secondary wide" type="button" id="signup" ${!cloudReady?'disabled':''}>Prima volta? Crea account</button></form><p class="legal">I dati sono separati per utente tramite policy di sicurezza del database.</p></section></main>`;
   draw();if(!cloudReady)return;
   const form=document.querySelector('#auth-form');
   form.onsubmit=e=>authenticate(e,false);
@@ -38,8 +38,9 @@ async function authenticate(event,signup){
   const credentials=authCredentials(Object.fromEntries(new FormData(form)));
   if(credentials.error){state.error=credentials.error;authView();return}
   const{email,password}=credentials;
+  state.authEmail=email;
   const result=signup?await supabase.auth.signUp({email,password,options:{emailRedirectTo:window.location.origin}}):await supabase.auth.signInWithPassword({email,password});
-  if(result.error){state.error=result.error.message;authView()}else if(signup&&!result.data.session){state.error='Account creato. Controlla la tua email per confermare l’accesso.';authView()}
+  if(result.error){state.error=authErrorMessage(result.error.message);authView()}else if(signup&&!result.data.session){state.error='Account creato. Controlla la tua email per confermare l’accesso.';authView()}
 }
 
 function shell(content){

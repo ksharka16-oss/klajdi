@@ -1,5 +1,6 @@
 import{describe,it}from'node:test';
 import assert from'node:assert/strict';
-import{authCredentials,calculateSummary}from'./data.js';
+import{authCredentials,authErrorMessage,calculateSummary}from'./data.js';
 describe('calculateSummary',()=>{it('counts each transaction once and separates monthly totals',()=>{const rows=[{kind:'income',amount:2000,occurred_on:'2026-09-01'},{kind:'expense',amount:350,occurred_on:'2026-09-02'},{kind:'expense',amount:100,occurred_on:'2026-08-31'}];const r=calculateSummary(rows,[{status:'to_pay'},{status:'to_review'}],'2026-09');assert.equal(r.income,2000);assert.equal(r.expenses,350);assert.equal(r.balance,1550);assert.equal(r.unpaid.length,1);assert.equal(r.review.length,1)})});
 describe('authCredentials',()=>{it('never turns an empty signup into an anonymous request',()=>{assert.deepEqual(authCredentials({email:'',password:''}),{error:'Inserisci email e password.'})});it('normalizes valid credentials',()=>{assert.deepEqual(authCredentials({email:'  klajdi@example.com ',password:'12345678'}),{email:'klajdi@example.com',password:'12345678'})})});
+describe('authErrorMessage',()=>{it('explains invalid credentials to a first-time user',()=>{assert.match(authErrorMessage('Invalid login credentials'),/Crea account/)})});

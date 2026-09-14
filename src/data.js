@@ -12,3 +12,10 @@ export function authCredentials(values={}){
   const email=String(values.email||'').trim(),password=String(values.password||'');
   return email&&password?{email,password}:{error:'Inserisci email e password.'};
 }
+export function authErrorMessage(message=''){
+  const normalized=String(message).toLowerCase();
+  if(normalized.includes('invalid login credentials'))return 'Email o password non corretti. Se è il primo accesso, premi “Crea account”.';
+  if(normalized.includes('email not confirmed'))return 'Email non ancora confermata. Apri il messaggio ricevuto e conferma l’account.';
+  if(normalized.includes('user already registered'))return 'Questa email è già registrata. Premi “Accedi”.';
+  return message||'Non è stato possibile completare l’accesso.';
+}
