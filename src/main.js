@@ -4,7 +4,7 @@ import{calculateSummary,money,safeText}from'./data.js';
 import'./styles.css';
 
 const pages=[['Home','LayoutDashboard'],['Fatture','FileText'],['Email','Mail'],['Entrate','TrendingUp'],['Spese','TrendingDown'],['Banca','Landmark'],['Riepilogo','Rows3'],['Scadenze','CalendarClock'],['Statistiche','ChartNoAxesCombined'],['Backup','DatabaseBackup'],['Impostazioni','Settings']];
-const envUrl=import.meta.env.VITE_SUPABASE_URL,envKey=import.meta.env.VITE_SUPABASE_ANON_KEY;
+const envUrl=import.meta.env.VITE_SUPABASE_URL,envKey=import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY||import.meta.env.VITE_SUPABASE_ANON_KEY;
 const cloudReady=Boolean(envUrl&&envKey&&!envUrl.includes('YOUR_PROJECT'));
 const supabase=cloudReady?createClient(envUrl,envKey):null;
 const state={page:'Home',session:null,transactions:[],invoices:[],categories:[],busy:false,error:''};
