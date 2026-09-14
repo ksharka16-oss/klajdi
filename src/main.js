@@ -35,7 +35,7 @@ function authView(){
 async function authenticate(event,signup){
   event.preventDefault();state.error='';const form=event.currentTarget;
   const{email,password}=Object.fromEntries(new FormData(form));
-  const result=signup?await supabase.auth.signUp({email,password}):await supabase.auth.signInWithPassword({email,password});
+  const result=signup?await supabase.auth.signUp({email,password,options:{emailRedirectTo:window.location.origin}}):await supabase.auth.signInWithPassword({email,password});
   if(result.error){state.error=result.error.message;authView()}else if(signup&&!result.data.session){state.error='Account creato. Controlla la tua email per confermare l’accesso.';authView()}
 }
 
