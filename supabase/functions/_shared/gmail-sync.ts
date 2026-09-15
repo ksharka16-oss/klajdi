@@ -3,6 +3,16 @@ import { classifyEmail, gmailRollingRange } from './classification.js'
 
 function header(message: any, name: string) { return message.payload?.headers?.find((item: any) => item.name?.toLowerCase() === name.toLowerCase())?.value ?? '' }
 function attachmentNames(part: any): string[] { return (part?.filename ? [part.filename] : []).concat((part?.parts ?? []).flatMap(attachmentNames)) }
+const pause = (milliseconds: number) => new Promise(resolve => setTimeout(resolve, milliseconds))
+async function googleFetch(url: string | URL, accessToken: string) {
+  let response: Response | null = null
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } })
+    if (![429, 500, 502, 503, 504].includes(response.status)) return response
+    await pause(500 * (2 ** attempt))
+  }
+  return response!
+}
 
 async function refreshToken(refresh: string) {
   const response = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, refresh_token: refresh, grant_type: 'refresh_token' }) })
@@ -36,14 +46,14 @@ async function syncAccountPage(account: any, userId: string, restart: boolean) {
   const listUrl = new URL('https://gmail.googleapis.com/gmail/v1/users/me/messages')
   listUrl.searchParams.set('maxResults', '20'); listUrl.searchParams.set('q', rollingRange.query)
   if (cursor.pageToken) listUrl.searchParams.set('pageToken', cursor.pageToken)
-  const listResponse = await fetch(listUrl, { headers: { Authorization: `Bearer ${accessToken}` } }), list = await listResponse.json()
-  if (!listResponse.ok) throw new Error('Gmail non è raggiungibile o i permessi sono scaduti.')
+  const listResponse = await googleFetch(listUrl, accessToken), list = await listResponse.json()
+  if (!listResponse.ok) throw new Error(listResponse.status === 429 ? 'Gmail è temporaneamente occupato: il controllo riprenderà automaticamente.' : 'Gmail non è raggiungibile o i permessi sono scaduti.')
   const { data: retryRows } = await admin.from('emails').select('provider_message_id').eq('email_account_id', account.id).eq('processing_state', 'retry').limit(20)
   const messageIds = [...new Set([...(retryRows ?? []).map(row => row.provider_message_id), ...(list.messages ?? []).map((item: any) => item.id)])]
-  const results = await Promise.all(messageIds.map(async messageId => {
+  const readMessage = async (messageId: string) => {
     try {
       const { data: existing } = await admin.from('emails').select('id').eq('email_account_id', account.id).eq('provider_message_id', messageId).maybeSingle()
-      const response = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}?format=full`, { headers: { Authorization: `Bearer ${accessToken}` } }), message = await response.json()
+      const response = await googleFetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}?format=full`, accessToken), message = await response.json()
       if (!response.ok) throw new Error('Lettura messaggio non riuscita')
       const messageClassification = classifyEmail(header(message, 'Subject'), header(message, 'From'), message.snippet ?? '', attachmentNames(message.payload))
       const { error } = await admin.from('emails').upsert({ user_id: userId, email_account_id: account.id, provider_message_id: message.id, thread_id: message.threadId ?? null, sender: header(message, 'From') || null, subject: header(message, 'Subject') || '(senza oggetto)', received_at: message.internalDate ? new Date(Number(message.internalDate)).toISOString() : null, classification: messageClassification, processing_state: 'complete', last_error: null }, { onConflict: 'email_account_id,provider_message_id' })
@@ -54,7 +64,9 @@ async function syncAccountPage(account: any, userId: string, restart: boolean) {
       await admin.from('emails').upsert({ user_id: userId, email_account_id: account.id, provider_message_id: messageId, classification: 'normal', processing_state: 'retry', retry_count: Number(existing.data?.retry_count ?? 0) + 1, last_error: error instanceof Error ? error.message : 'Errore sconosciuto' }, { onConflict: 'email_account_id,provider_message_id' })
       return { imported: 0, newUseful: 0 }
     }
-  }))
+  }
+  const results = []
+  for (let offset = 0; offset < messageIds.length; offset += 5) results.push(...await Promise.all(messageIds.slice(offset, offset + 5).map(readMessage)))
   await admin.from('email_accounts').update({ sync_cursor: JSON.stringify({ window: rollingRange.window, pageToken: list.nextPageToken ?? null, complete: !list.nextPageToken }), last_synced_at: new Date().toISOString() }).eq('id', account.id).eq('user_id', userId)
   return { imported: results.reduce((n, value) => n + value.imported, 0), newUseful: results.reduce((n, value) => n + value.newUseful, 0), hasMore: Boolean(list.nextPageToken) }
 }
@@ -71,4 +83,3 @@ export async function syncRecentForUser(userId: string, options: { restart?: boo
   }
   return { imported, newUseful, hasMore, accounts: accountCount }
 }
-

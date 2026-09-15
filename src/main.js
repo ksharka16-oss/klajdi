@@ -9,7 +9,7 @@ const envUrl=import.meta.env.VITE_SUPABASE_URL,envKey=import.meta.env.VITE_SUPAB
 const cloudReady=Boolean(envUrl&&envKey&&!envUrl.includes('YOUR_PROJECT'));
 const supabase=cloudReady?createClient(envUrl,envKey):null;
 const VAPID_PUBLIC_KEY='BMrKPlKuLA8-2y-7agapE4xBkp0_8wMcFZ9pL42Lalj8PIUwTQ1bOQXEudUpMrG3nXwfUZQCvhnLfc_WNybt3-M';
-const state={page:'Home',session:null,transactions:[],invoices:[],categories:[],emailAccounts:[],emails:[],notifications:[],busy:false,error:'',notice:'',authEmail:'',autoSyncStarted:false};
+const state={page:'Home',session:null,transactions:[],invoices:[],categories:[],emailAccounts:[],emails:[],notifications:[],busy:false,error:'',notice:'',authEmail:'',autoSyncStarted:false,gmailSyncing:false};
 const app=document.querySelector('#app'),ico=n=>`<i data-lucide="${n}" aria-hidden="true"></i>`,draw=()=>createIcons({icons});
 const date=v=>v?new Date(`${v}T00:00:00`).toLocaleDateString('it-IT'):'—';
 const status=s=>({paid:'PAGATA',to_pay:'DA PAGARE',to_review:'DA CONTROLLARE'}[s]||s);
@@ -106,13 +106,16 @@ async function enablePush(requestPermission){
   return true
 }
 async function syncRecentEmails(button=null,automatic=false){
-  if(!state.session||!state.emailAccounts.length)return;
+  if(!state.session||!state.emailAccounts.length||state.gmailSyncing)return;
+  state.gmailSyncing=true;
   if(button)button.disabled=true;
   let total=0,newUseful=0,hasMore=true,round=0;
-  while(hasMore&&round<50){if(button)button.textContent=`Lettura 30 giorni… ${total}`;const{data,error}=await supabase.functions.invoke('gmail-sync',{body:{restart:round===0}});if(error){if(!automatic){state.error=await functionError(error,'Sincronizzazione Gmail non riuscita.');render()}return}total+=Number(data.imported||0);newUseful+=Number(data.newUseful||0);hasMore=Boolean(data.hasMore??data.has_more);round+=1}
-  if(!automatic)state.notice=hasMore?`${total} email elaborate. Premi di nuovo per continuare.`:`Ultimi 30 giorni completati: ${total} email elaborate senza duplicati.`;
-  if(newUseful>0&&Notification.permission==='granted'){const registration=await navigator.serviceWorker.ready;await registration.showNotification('SOLDI',{body:`${newUseful} nuove email finanziarie trovate.`,tag:'soldi-gmail-local',data:{url:'/?page=Email'}})}
-  await loadData()
+  try{
+    while(hasMore&&round<50){if(button)button.textContent=`Lettura 30 giorni… ${total}`;const{data,error}=await supabase.functions.invoke('gmail-sync',{body:{restart:round===0}});if(error)throw new Error(await functionError(error,'Sincronizzazione Gmail non riuscita.'));total+=Number(data.imported||0);newUseful+=Number(data.newUseful||0);hasMore=Boolean(data.hasMore??data.has_more);round+=1}
+    state.error='';if(!automatic)state.notice=hasMore?`${total} email elaborate. Premi di nuovo per continuare.`:`Ultimi 30 giorni completati: ${total} email elaborate senza duplicati.`;
+    if(newUseful>0&&Notification.permission==='granted'){const registration=await navigator.serviceWorker.ready;await registration.showNotification('SOLDI',{body:`${newUseful} nuove email finanziarie trovate.`,tag:'soldi-gmail-local',data:{url:'/?page=Email'}})}
+  }catch(error){if(!automatic)state.error=error.message}
+  finally{state.gmailSyncing=false;await loadData()}
 }
 function emailPage(){
   const accounts=state.emailAccounts.map(account=>`<article class="mail-account"><div class="row-icon income">${ico('MailCheck')}</div><div><strong>${safeText(account.email_address)}</strong><small>${account.last_synced_at?`Ultimo controllo ${new Date(account.last_synced_at).toLocaleString('it-IT')}`:'Pronto per la prima sincronizzazione'}</small></div></article>`).join('');
