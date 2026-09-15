@@ -1,5 +1,5 @@
 import { adminClient, clientId, clientSecret, decryptToken, encryptToken } from './gmail.ts'
-import { classifyEmail, gmailRollingRange } from './classification.js'
+import { classifyEmail, financialStatus, gmailRollingRange } from './classification.js'
 
 function header(message: any, name: string) { return message.payload?.headers?.find((item: any) => item.name?.toLowerCase() === name.toLowerCase())?.value ?? '' }
 function attachmentNames(part: any): string[] { return (part?.filename ? [part.filename] : []).concat((part?.parts ?? []).flatMap(attachmentNames)) }
@@ -55,13 +55,22 @@ async function syncAccountPage(account: any, userId: string, restart: boolean) {
       const { data: existing } = await admin.from('emails').select('id').eq('email_account_id', account.id).eq('provider_message_id', messageId).maybeSingle()
       const response = await googleFetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}?format=full`, accessToken), message = await response.json()
       if (!response.ok) throw new Error('Lettura messaggio non riuscita')
-      const messageClassification = classifyEmail(header(message, 'Subject'), header(message, 'From'), message.snippet ?? '', attachmentNames(message.payload))
-      const { error } = await admin.from('emails').upsert({ user_id: userId, email_account_id: account.id, provider_message_id: message.id, thread_id: message.threadId ?? null, sender: header(message, 'From') || null, subject: header(message, 'Subject') || '(senza oggetto)', received_at: message.internalDate ? new Date(Number(message.internalDate)).toISOString() : null, classification: messageClassification, processing_state: 'complete', last_error: null }, { onConflict: 'email_account_id,provider_message_id' })
+      const subject = header(message, 'Subject'), sender = header(message, 'From'), snippet = message.snippet ?? '', files = attachmentNames(message.payload)
+      const messageClassification = classifyEmail(subject, sender, snippet, files)
+      const status = financialStatus(messageClassification, subject, sender, snippet, files)
+      if (!status) {
+        if (existing?.id) {
+          const { error } = await admin.from('emails').update({ classification: messageClassification, financial_status: null, processing_state: 'complete', last_error: null }).eq('id', existing.id).eq('user_id', userId)
+          if (error) throw error
+        }
+        return { imported: 1, newUseful: 0 }
+      }
+      const { error } = await admin.from('emails').upsert({ user_id: userId, email_account_id: account.id, provider_message_id: message.id, thread_id: message.threadId ?? null, sender: sender || null, subject: subject || '(senza oggetto)', received_at: message.internalDate ? new Date(Number(message.internalDate)).toISOString() : null, classification: messageClassification, financial_status: status, processing_state: 'complete', last_error: null }, { onConflict: 'email_account_id,provider_message_id' })
       if (error) throw error
-      return { imported: 1, newUseful: !existing && !['normal', 'ignore'].includes(messageClassification) ? 1 : 0 }
+      return { imported: 1, newUseful: !existing ? 1 : 0 }
     } catch (error) {
       const existing = await admin.from('emails').select('retry_count').eq('email_account_id', account.id).eq('provider_message_id', messageId).maybeSingle()
-      await admin.from('emails').upsert({ user_id: userId, email_account_id: account.id, provider_message_id: messageId, classification: 'normal', processing_state: 'retry', retry_count: Number(existing.data?.retry_count ?? 0) + 1, last_error: error instanceof Error ? error.message : 'Errore sconosciuto' }, { onConflict: 'email_account_id,provider_message_id' })
+      await admin.from('emails').upsert({ user_id: userId, email_account_id: account.id, provider_message_id: messageId, classification: 'normal', financial_status: null, processing_state: 'retry', retry_count: Number(existing.data?.retry_count ?? 0) + 1, last_error: error instanceof Error ? error.message : 'Errore sconosciuto' }, { onConflict: 'email_account_id,provider_message_id' })
       return { imported: 0, newUseful: 0 }
     }
   }
