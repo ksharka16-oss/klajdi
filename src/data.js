@@ -19,3 +19,11 @@ export function authErrorMessage(message=''){
   if(normalized.includes('user already registered'))return 'Questa email è già registrata. Premi “Accedi”.';
   return message||'Non è stato possibile completare l’accesso.';
 }
+export const invoiceFileTypes=['application/pdf','image/jpeg','image/png','image/webp'];
+export function validateInvoiceFile(file){
+  if(!file)return'';
+  if(!invoiceFileTypes.includes(file.type))return'Sono ammessi soltanto PDF, JPG, PNG e WEBP.';
+  if(file.size>10485760)return'Il documento non può superare 10 MB.';
+  return'';
+}
+export const storageFileName=name=>String(name||'documento').normalize('NFKD').replace(/[^a-zA-Z0-9._-]+/g,'-').replace(/^-+|-+$/g,'')||'documento';
