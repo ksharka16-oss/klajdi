@@ -19,8 +19,8 @@ async function loadData(){
   if(!supabase||!state.session)return;
   state.busy=true;render();
   const[tx,inv,cat,emailAccounts,emails,notifications]=await Promise.all([
-    supabase.from('transactions').select('*,categories(name)').order('occurred_on',{ascending:false}),
-    supabase.from('invoices').select('*,categories(name)').order('due_on',{ascending:true}),
+    supabase.from('transactions').select('*,categories!transactions_category_id_fkey(name)').order('occurred_on',{ascending:false}),
+    supabase.from('invoices').select('*,categories!invoices_category_id_fkey(name)').order('due_on',{ascending:true}),
     supabase.from('categories').select('*').order('name'),
     supabase.from('email_accounts').select('*').order('created_at'),
     supabase.from('emails').select('*').order('received_at',{ascending:false}).limit(100),
