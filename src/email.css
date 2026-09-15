@@ -1,0 +1,16 @@
+.alert.success{border-color:#275f50;background:#153a32;color:#9bf0d1}
+.toolbar-actions{display:flex;gap:9px}
+.toolbar-actions svg{width:17px}
+.mail-accounts{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px;margin-bottom:14px}
+.mail-account{display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:center;padding:15px;border:1px solid var(--line);border-radius:14px;background:var(--panel)}
+.mail-account strong,.mail-account small{display:block}
+.mail-account small{margin-top:4px;color:var(--muted);font-size:.7rem}
+.email-head{padding:15px 0 8px}
+.email-head small{max-width:270px;color:var(--muted);text-align:right}
+.email-row .badge{margin:0;white-space:nowrap}
+.badge.invoice,.badge.pagopa{background:#463a1f;color:#ffd278}
+.badge.receipt,.badge.payment_confirmation{background:#173b32;color:var(--green)}
+.badge.financial_document{background:#26345d;color:#cbd0ff}
+.badge.normal,.badge.ignore{background:#202a3b;color:#a1acbf}
+@media(max-width:760px){.toolbar{gap:10px}.toolbar-actions{flex-direction:column;align-items:stretch}.email-head{align-items:flex-start;flex-direction:column}.email-head small{text-align:left}}
+@media(max-width:470px){.email-row .badge{grid-column:2;text-align:left;justify-self:start}}

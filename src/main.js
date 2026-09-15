@@ -2,12 +2,13 @@ import{createClient}from'@supabase/supabase-js';
 import{createIcons,icons}from'lucide';
 import{authCredentials,authErrorMessage,calculateSummary,money,safeText,storageFileName,validateInvoiceFile}from'./data.js';
 import'./styles.css';
+import'./email.css';
 
 const pages=[['Home','LayoutDashboard'],['Fatture','FileText'],['Email','Mail'],['Entrate','TrendingUp'],['Spese','TrendingDown'],['Banca','Landmark'],['Riepilogo','Rows3'],['Scadenze','CalendarClock'],['Statistiche','ChartNoAxesCombined'],['Backup','DatabaseBackup'],['Impostazioni','Settings']];
 const envUrl=import.meta.env.VITE_SUPABASE_URL,envKey=import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY||import.meta.env.VITE_SUPABASE_ANON_KEY;
 const cloudReady=Boolean(envUrl&&envKey&&!envUrl.includes('YOUR_PROJECT'));
 const supabase=cloudReady?createClient(envUrl,envKey):null;
-const state={page:'Home',session:null,transactions:[],invoices:[],categories:[],busy:false,error:'',authEmail:''};
+const state={page:'Home',session:null,transactions:[],invoices:[],categories:[],emailAccounts:[],emails:[],busy:false,error:'',notice:'',authEmail:''};
 const app=document.querySelector('#app'),ico=n=>`<i data-lucide="${n}" aria-hidden="true"></i>`,draw=()=>createIcons({icons});
 const date=v=>v?new Date(`${v}T00:00:00`).toLocaleDateString('it-IT'):'—';
 const status=s=>({paid:'PAGATA',to_pay:'DA PAGARE',to_review:'DA CONTROLLARE'}[s]||s);
@@ -16,12 +17,14 @@ function setPage(page){state.page=page;state.error='';render()}
 async function loadData(){
   if(!supabase||!state.session)return;
   state.busy=true;render();
-  const[tx,inv,cat]=await Promise.all([
+  const[tx,inv,cat,emailAccounts,emails]=await Promise.all([
     supabase.from('transactions').select('*,categories(name)').order('occurred_on',{ascending:false}),
     supabase.from('invoices').select('*,categories(name)').order('due_on',{ascending:true}),
-    supabase.from('categories').select('*').order('name')]);
-  const failed=[tx,inv,cat].find(x=>x.error)?.error;
-  if(failed)state.error=failed.message;else{state.transactions=tx.data;state.invoices=inv.data;state.categories=cat.data}
+    supabase.from('categories').select('*').order('name'),
+    supabase.from('email_accounts').select('*').order('created_at'),
+    supabase.from('emails').select('*').order('received_at',{ascending:false}).limit(100)]);
+  const failed=[tx,inv,cat,emailAccounts,emails].find(x=>x.error)?.error;
+  if(failed)state.error=failed.message;else{state.transactions=tx.data;state.invoices=inv.data;state.categories=cat.data;state.emailAccounts=emailAccounts.data;state.emails=emails.data}
   state.busy=false;render();
 }
 
@@ -45,7 +48,7 @@ async function authenticate(event,signup){
 
 function shell(content){
   const user=state.session.user;
-  app.innerHTML=`<div class="app-shell"><aside class="sidebar"><div class="brand"><span>${ico('WalletCards')}</span>SOLDI</div><nav>${pages.map(([label,glyph])=>`<button data-page="${label}" class="${state.page===label?'active':''}">${ico(glyph)}<span>${label}</span></button>`).join('')}</nav><div class="account"><div class="avatar">${safeText(user.email[0].toUpperCase())}</div><div><strong>${safeText(user.email.split('@')[0])}</strong><small>${safeText(user.email)}</small></div><button id="logout" title="Esci">${ico('LogOut')}</button></div></aside><main class="workspace"><header><button class="menu" id="menu">${ico('Menu')}</button><div><p class="kicker">GESTIONE FINANZIARIA</p><h1>${state.page}</h1></div><div class="cloud-state">${ico('Cloud')}<span>Cloud attivo</span></div></header>${state.error?`<div class="alert">${safeText(state.error)}</div>`:''}${state.busy?'<div class="loader">Sincronizzazione…</div>':''}<section>${content}</section></main><button class="scrim" id="scrim" aria-label="Chiudi menu"></button></div>`;
+  app.innerHTML=`<div class="app-shell"><aside class="sidebar"><div class="brand"><span>${ico('WalletCards')}</span>SOLDI</div><nav>${pages.map(([label,glyph])=>`<button data-page="${label}" class="${state.page===label?'active':''}">${ico(glyph)}<span>${label}</span></button>`).join('')}</nav><div class="account"><div class="avatar">${safeText(user.email[0].toUpperCase())}</div><div><strong>${safeText(user.email.split('@')[0])}</strong><small>${safeText(user.email)}</small></div><button id="logout" title="Esci">${ico('LogOut')}</button></div></aside><main class="workspace"><header><button class="menu" id="menu">${ico('Menu')}</button><div><p class="kicker">GESTIONE FINANZIARIA</p><h1>${state.page}</h1></div><div class="cloud-state">${ico('Cloud')}<span>Cloud attivo</span></div></header>${state.notice?`<div class="alert success">${safeText(state.notice)}</div>`:''}${state.error?`<div class="alert">${safeText(state.error)}</div>`:''}${state.busy?'<div class="loader">Sincronizzazione…</div>':''}<section>${content}</section></main><button class="scrim" id="scrim" aria-label="Chiudi menu"></button></div>`;
   document.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>setPage(b.dataset.page));
   document.querySelector('#menu').onclick=()=>document.querySelector('.app-shell').classList.add('menu-open');
   document.querySelector('#scrim').onclick=()=>document.querySelector('.app-shell').classList.remove('menu-open');
@@ -84,7 +87,17 @@ function invoicesPage(){
 function summaryPage(){shell(`<article class="panel"><div class="panel-head"><div><p class="kicker">REGISTRO UNICO</p><h2>Tutte le operazioni</h2></div><span>${state.transactions.length} elementi</span></div>${txRows(state.transactions)}</article>`);draw()}
 function deadlinesPage(){shell(`<article class="panel"><div class="panel-head"><div><p class="kicker">SCADENZE</p><h2>Fatture ancora aperte</h2></div></div>${invoiceRows(state.invoices.filter(i=>i.status==='to_pay'))}</article>`);bindInvoiceDocuments();draw()}
 function statsPage(){const s=calculateSummary(state.transactions,state.invoices),max=Math.max(s.income,s.expenses,1);shell(`<div class="metric-grid three">${metric('Entrate mese',money(s.income),'TrendingUp','positive')}${metric('Spese mese',money(s.expenses),'TrendingDown','negative')}${metric('Risparmio',money(s.savings),'PiggyBank',s.savings>=0?'positive':'negative')}</div><article class="panel chart"><h2>Andamento del mese</h2><div><span>Entrate</span><div class="bar"><i style="width:${s.income/max*100}%"></i></div><b>${money(s.income)}</b></div><div><span>Spese</span><div class="bar"><i class="expense" style="width:${s.expenses/max*100}%"></i></div><b>${money(s.expenses)}</b></div></article>`);draw()}
+const emailLabels={invoice:'FATTURA',receipt:'RICEVUTA',pagopa:'PAGOPA',payment_confirmation:'CONFERMA PAGAMENTO',financial_document:'DOCUMENTO FINANZIARIO',normal:'EMAIL NORMALE',ignore:'IGNORA'};
+async function functionError(error,fallback){try{return(error?.context&&await error.context.json())?.error||fallback}catch{return fallback}}
+function emailPage(){
+  const accounts=state.emailAccounts.map(account=>`<article class="mail-account"><div class="row-icon income">${ico('MailCheck')}</div><div><strong>${safeText(account.email_address)}</strong><small>${account.last_synced_at?`Ultimo controllo ${new Date(account.last_synced_at).toLocaleString('it-IT')}`:'Pronto per la prima sincronizzazione'}</small></div></article>`).join('');
+  const rows=state.emails.length?`<div class="rows">${state.emails.map(message=>`<div class="row email-row"><div class="row-icon">${ico(message.classification==='ignore'?'MailMinus':'Mail')}</div><div><strong>${safeText(message.subject||'(senza oggetto)')}</strong><small>${safeText(message.sender||'Mittente sconosciuto')} · ${message.received_at?new Date(message.received_at).toLocaleDateString('it-IT'):'—'}</small></div><span class="badge ${message.classification}">${emailLabels[message.classification]||message.classification}</span></div>`).join('')}</div>`:empty('Nessuna email sincronizzata.');
+  shell(`<div class="toolbar"><p>${state.emailAccounts.length} account Gmail · ${state.emails.length} messaggi classificati</p><div class="toolbar-actions"><button class="secondary" id="connect-gmail">${ico('Link')} Collega Gmail</button>${state.emailAccounts.length?`<button class="primary" id="sync-gmail">${ico('RefreshCw')} Sincronizza 20 email</button>`:''}</div></div>${accounts?`<div class="mail-accounts">${accounts}</div>`:''}<article class="panel table-panel"><div class="panel-head email-head"><div><p class="kicker">POSTA ANALIZZATA</p><h2>Messaggi recenti</h2></div><small>Le email normali non diventano fatture automaticamente</small></div>${rows}</article>`);
+  document.querySelector('#connect-gmail').onclick=async()=>{state.error='';state.notice='';const button=document.querySelector('#connect-gmail');button.disabled=true;button.textContent='Apertura Google…';const{data,error}=await supabase.functions.invoke('gmail-oauth-start');if(error||!data?.url){state.error=await functionError(error,'Impossibile avviare il collegamento Gmail.');render();return}location.assign(data.url)};
+  const sync=document.querySelector('#sync-gmail');if(sync)sync.onclick=async()=>{state.error='';state.notice='';sync.disabled=true;sync.textContent='Sincronizzazione…';const{data,error}=await supabase.functions.invoke('gmail-sync');if(error){state.error=await functionError(error,'Sincronizzazione Gmail non riuscita.');render();return}state.notice=`${data.imported} email elaborate.${data.has_more?' Premi di nuovo Sincronizza per continuare.':''}`;await loadData()};draw();
+}
 function placeholder(title,copy,glyph){shell(`<article class="panel placeholder"><div class="placeholder-icon">${ico(glyph)}</div><p class="kicker">MODULO PREPARATO</p><h2>${title}</h2><p>${copy}</p></article>`);draw()}
-function render(){if(!state.session)return authView();const routes={Home:home,Fatture:invoicesPage,Entrate:()=>transactionPage('income'),Spese:()=>transactionPage('expense'),Riepilogo:summaryPage,Scadenze:deadlinesPage,Statistiche:statsPage,Email:()=>placeholder('Email','Il connettore Gmail multi-account sarà attivato con OAuth e sincronizzazione idempotente.','Mail'),Banca:()=>placeholder('Banca','La struttura dati è pronta per conti, movimenti e riconciliazione senza doppio conteggio.','Landmark'),Backup:()=>placeholder('Backup','Backup automatici, ripristino e storico saranno gestiti lato server.','DatabaseBackup'),Impostazioni:()=>placeholder('Impostazioni','Profilo, categorie, collegamenti e preferenze personali.','Settings')};(routes[state.page]||home)()}
+function render(){if(!state.session)return authView();const routes={Home:home,Fatture:invoicesPage,Entrate:()=>transactionPage('income'),Spese:()=>transactionPage('expense'),Riepilogo:summaryPage,Scadenze:deadlinesPage,Statistiche:statsPage,Email:emailPage,Banca:()=>placeholder('Banca','La struttura dati è pronta per conti, movimenti e riconciliazione senza doppio conteggio.','Landmark'),Backup:()=>placeholder('Backup','Backup automatici, ripristino e storico saranno gestiti lato server.','DatabaseBackup'),Impostazioni:()=>placeholder('Impostazioni','Profilo, categorie, collegamenti e preferenze personali.','Settings')};(routes[state.page]||home)()}
 
+const callback=new URLSearchParams(location.search);if(callback.has('gmail')){state.page='Email';if(callback.get('gmail')==='connected')state.notice='Account Gmail collegato correttamente.';else state.error=callback.get('detail')||'Collegamento Gmail non riuscito.';history.replaceState({},'',location.pathname)}
 if(supabase){supabase.auth.getSession().then(({data})=>{state.session=data.session;if(state.session)loadData();else render()});supabase.auth.onAuthStateChange((event,session)=>{state.session=session;if(event==='SIGNED_IN')setTimeout(loadData,0);else render()})}else render();

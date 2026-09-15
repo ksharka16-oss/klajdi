@@ -10,4 +10,6 @@ Web app responsive per la gestione finanziaria personale. Usa Vite e Supabase (P
 
 La configurazione di produzione usa `VITE_SUPABASE_URL` e `VITE_SUPABASE_PUBLISHABLE_KEY`. La chiave publishable è destinata al client; token OAuth, service-role key e altri segreti devono restare lato server e non usare il prefisso `VITE_`.
 
+Il collegamento Gmail usa le Edge Functions `gmail-oauth-start`, `gmail-oauth-callback` e `gmail-sync`. I segreti `GOOGLE_CLIENT_ID` e `GOOGLE_CLIENT_SECRET` devono essere impostati solo nella pagina Edge Function Secrets del progetto Supabase SOLDI. Redirect OAuth autorizzato: `https://tgpkewsutphlwmkylemr.supabase.co/functions/v1/gmail-oauth-callback`.
+
 Il database applica RLS per utente, vincoli anti-duplicato, un movimento utilizzabile in una sola riconciliazione e stato fattura prudente (`to_review` predefinito). Le scadenze si aprono e chiudono automaticamente in base allo stato fattura.
