@@ -1,0 +1,10 @@
+{
+  "name": "SOLDI — Gestione finanziaria",
+  "short_name": "SOLDI",
+  "description": "Gestione finanziaria personale protetta",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#08101f",
+  "theme_color": "#08101f",
+  "lang": "it"
+}

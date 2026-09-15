@@ -2,8 +2,8 @@ import { createClient } from 'npm:@supabase/supabase-js@2.57.4'
 
 export const appOrigin = 'https://klajdi.vercel.app'
 export const redirectUri = `${Deno.env.get('SUPABASE_URL')}/functions/v1/gmail-oauth-callback`
-export const clientId = Deno.env.get('GOOGLE_CLIENT_ID') ?? ''
-export const clientSecret = Deno.env.get('GOOGLE_CLIENT_SECRET') ?? ''
+export const clientId = (Deno.env.get('GOOGLE_CLIENT_ID') ?? '').trim()
+export const clientSecret = (Deno.env.get('GOOGLE_CLIENT_SECRET') ?? '').trim()
 
 export const corsHeaders = (origin: string | null) => ({
   'Access-Control-Allow-Origin': origin === appOrigin || origin?.startsWith('http://localhost:') ? origin : appOrigin,
@@ -63,4 +63,3 @@ export async function decryptToken(value: string) {
 export function json(body: unknown, status = 200, origin: string | null = appOrigin) {
   return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders(origin), 'Content-Type': 'application/json' } })
 }
-
