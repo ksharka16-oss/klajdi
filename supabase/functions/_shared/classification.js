@@ -83,6 +83,12 @@ export function paymentInvoiceMatch(payment={},invoice={}){
   return{matched:false,confidence:0,reason:'insufficient_evidence'};
 }
 
+export function autoInvoiceCandidate(classification='',status='',data={},files=[]){
+  const amount=Number(data.amount);
+  const strongReference=Boolean(data.iuv||data.invoice_number||files.length);
+  return status==='to_pay'&&['invoice','pagopa'].includes(classification)&&amount>0&&Boolean(data.supplier)&&strongReference;
+}
+
 export function gmailRollingRange(now=new Date(),days=30){
   const day=now.toISOString().slice(0,10);
   return{window:`last-${days}-days:${day}`,query:`newer_than:${days}d`};
