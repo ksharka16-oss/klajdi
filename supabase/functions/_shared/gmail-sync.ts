@@ -1,11 +1,16 @@
 import { adminClient, clientId, clientSecret, decryptToken, encryptToken } from './gmail.ts'
-import { classifyEmail, extractFinancialFields, financialStatus, gmailRollingRange, paymentInvoiceMatch, supportedFinancialAttachment } from './classification.js'
+import { autoInvoiceCandidate, classifyEmail, extractFinancialFields, financialStatus, gmailRollingRange, paymentInvoiceMatch, supportedFinancialAttachment } from './classification.js'
 
 function header(message: any, name: string) { return message.payload?.headers?.find((item: any) => item.name?.toLowerCase() === name.toLowerCase())?.value ?? '' }
 function attachmentNames(part: any): string[] { return (part?.filename ? [part.filename] : []).concat((part?.parts ?? []).flatMap(attachmentNames)) }
 function attachmentParts(part: any): any[] { return (part?.filename && (part?.body?.attachmentId || part?.body?.data) ? [{ filename: part.filename, mimeType: part.mimeType ?? 'application/octet-stream', size: Number(part.body?.size ?? 0), attachmentId: part.body?.attachmentId ?? null, data: part.body?.data ?? null }] : []).concat((part?.parts ?? []).flatMap(attachmentParts)) }
 function safeFileName(value: string) { return value.normalize('NFKD').replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'documento' }
 function decodeBase64Url(value: string) { const normalized = value.replace(/-/g, '+').replace(/_/g, '/'), binary = atob(normalized); return Uint8Array.from(binary, character => character.charCodeAt(0)) }
+function messageBodyText(part: any): string {
+  const own = part?.body?.data && /^text\/(plain|html)$/i.test(part?.mimeType ?? '') ? new TextDecoder().decode(decodeBase64Url(part.body.data)) : ''
+  const nested = (part?.parts ?? []).map(messageBodyText).join(' ')
+  return `${own} ${nested}`.replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;|&#160;/gi, ' ').replace(/&amp;/gi, '&').replace(/\s+/g, ' ').trim()
+}
 async function sha256(value: Uint8Array) { return [...new Uint8Array(await crypto.subtle.digest('SHA-256', value))].map(byte => byte.toString(16).padStart(2, '0')).join('') }
 const pause = (milliseconds: number) => new Promise(resolve => setTimeout(resolve, milliseconds))
 async function googleFetch(url: string | URL, accessToken: string) {
@@ -76,6 +81,19 @@ async function reconcilePaymentConfirmation(admin: any, userId: string, emailId:
   return { invoice_id: winner.invoice.id, confidence: winner.match.confidence, reason: winner.match.reason }
 }
 
+async function createInvoiceFromEmail(admin: any, userId: string, emailId: string, classification: string, status: string, extracted: any, files: string[]) {
+  if (!autoInvoiceCandidate(classification, status, extracted, files)) return null
+  const { data: existing } = await admin.from('invoices').select('id').eq('user_id', userId).eq('source_email_id', emailId).maybeSingle()
+  if (existing) return existing.id
+  const { data: attachment } = await admin.from('attachments').select('*').eq('user_id', userId).eq('email_id', emailId).order('created_at').limit(1).maybeSingle()
+  const invoiceId = crypto.randomUUID()
+  const inserted = await admin.from('invoices').insert({ id: invoiceId, user_id: userId, source_email_id: emailId, supplier: extracted.supplier, amount: Number(extracted.amount), invoice_number: extracted.invoice_number ?? null, iuv: extracted.iuv ?? null, due_on: extracted.due_on ?? null, status: 'to_pay', confidence: .95, extracted_data: extracted, ocr_status: 'not_requested', storage_path: attachment?.storage_path ?? null, document_name: attachment?.file_name ?? null, document_mime: attachment?.mime_type ?? null, document_size: attachment?.byte_size ?? null, file_hash: attachment?.file_hash ?? null }).select('id').single()
+  if (inserted.error) { if (inserted.error.code === '23505') return null; throw inserted.error }
+  if (attachment) await admin.from('attachments').update({ invoice_id: invoiceId }).eq('id', attachment.id).eq('user_id', userId)
+  await admin.from('audit_log').insert({ user_id: userId, action: 'invoice_created_from_email', entity_type: 'invoice', entity_id: invoiceId, metadata: { email_id: emailId, classification } })
+  return invoiceId
+}
+
 async function syncAccountPage(account: any, userId: string, restart: boolean) {
   const admin = adminClient(), rollingRange = gmailRollingRange()
   let cursor: { window?: string; pageToken?: string | null; complete?: boolean } = {}
@@ -96,9 +114,9 @@ async function syncAccountPage(account: any, userId: string, restart: boolean) {
       const { data: existing } = await admin.from('emails').select('id').eq('email_account_id', account.id).eq('provider_message_id', messageId).maybeSingle()
       const response = await googleFetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}?format=full`, accessToken), message = await response.json()
       if (!response.ok) throw new Error('Lettura messaggio non riuscita')
-      const subject = header(message, 'Subject'), sender = header(message, 'From'), snippet = message.snippet ?? '', files = attachmentNames(message.payload)
-      const messageClassification = classifyEmail(subject, sender, snippet, files)
-      const status = financialStatus(messageClassification, subject, sender, snippet, files)
+      const subject = header(message, 'Subject'), sender = header(message, 'From'), snippet = message.snippet ?? '', bodyText = messageBodyText(message.payload), content = `${snippet} ${bodyText}`.slice(0, 100000), files = attachmentNames(message.payload)
+      const messageClassification = classifyEmail(subject, sender, content, files)
+      const status = financialStatus(messageClassification, subject, sender, content, files)
       if (!status) {
         if (existing?.id) {
           const { error } = await admin.from('emails').update({ classification: messageClassification, financial_status: null, processing_state: 'complete', last_error: null }).eq('id', existing.id).eq('user_id', userId)
@@ -106,10 +124,11 @@ async function syncAccountPage(account: any, userId: string, restart: boolean) {
         }
         return { imported: 1, newUseful: 0 }
       }
-      const extracted = extractFinancialFields(subject, sender, snippet, files)
+      const extracted = extractFinancialFields(subject, sender, content, files)
       const { data: savedEmail, error } = await admin.from('emails').upsert({ user_id: userId, email_account_id: account.id, provider_message_id: message.id, thread_id: message.threadId ?? null, sender: sender || null, subject: subject || '(senza oggetto)', received_at: message.internalDate ? new Date(Number(message.internalDate)).toISOString() : null, classification: messageClassification, financial_status: status, extracted_data: extracted.data, confidence: extracted.confidence, processing_state: 'complete', last_error: null }, { onConflict: 'email_account_id,provider_message_id' }).select('id').single()
       if (error) throw error
       await saveAttachments(admin, message, accessToken, userId, account.id, savedEmail.id)
+      if (status === 'to_pay') await createInvoiceFromEmail(admin, userId, savedEmail.id, messageClassification, status, extracted.data, files)
       if (messageClassification === 'payment_confirmation') {
         const reconciliation = await reconcilePaymentConfirmation(admin, userId, savedEmail.id, extracted.data)
         if (reconciliation) await admin.from('emails').update({ extracted_data: { ...extracted.data, matched_invoice_id: reconciliation.invoice_id, payment_match: reconciliation } }).eq('id', savedEmail.id).eq('user_id', userId)
