@@ -29,6 +29,40 @@ export function financialStatus(classification='',subject='',sender='',snippet='
   return null;
 }
 
+function normalizedAmount(value=''){
+  const compact=value.replace(/\s/g,'');
+  const decimal=compact.includes(',')?compact.replace(/\./g,'').replace(',','.'):compact;
+  const amount=Number(decimal);
+  return Number.isFinite(amount)&&amount>0?amount:null;
+}
+
+function isoDate(value=''){
+  const match=value.match(/(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})/);
+  if(!match)return null;
+  const [,day,month,year]=match,date=`${year}-${month.padStart(2,'0')}-${day.padStart(2,'0')}`;
+  return Number.isNaN(Date.parse(`${date}T00:00:00Z`))?null:date;
+}
+
+export function extractFinancialFields(subject='',sender='',snippet='',files=[]){
+  const text=`${subject} ${snippet}`.replace(/\s+/g,' ').trim();
+  const amountMatch=text.match(/(?:€|eur)\s*([0-9][0-9.\s]*(?:,[0-9]{2})?|[0-9]+(?:\.[0-9]{2})?)|([0-9][0-9.\s]*(?:,[0-9]{2})?|[0-9]+(?:\.[0-9]{2})?)\s*(?:€|eur)/i);
+  const dueMatch=text.match(/(?:scadenza|entro il|due date)\D{0,24}(\d{1,2}[\/.-]\d{1,2}[\/.-]\d{4})/i);
+  const iuvMatch=text.match(/\biuv\s*[:#-]?\s*([0-9]{10,35})/i);
+  const numberMatch=text.match(/(?:fattura|invoice)\s*(?:n(?:umero)?\.?|#)?\s*[:#-]?\s*([a-z0-9][a-z0-9\/_-]{2,})/i);
+  const namedSender=sender.replace(/<[^>]+>/g,'').replace(/["']/g,'').trim();
+  const fallbackSender=(sender.match(/@([^>\s]+)/)?.[1]||'').split('.')[0];
+  const result={
+    supplier:namedSender||fallbackSender||null,
+    amount:normalizedAmount(amountMatch?.[1]||amountMatch?.[2]||''),
+    due_on:isoDate(dueMatch?.[1]||''),
+    invoice_number:numberMatch?.[1]||null,
+    iuv:iuvMatch?.[1]||null,
+    attachment_names:files,
+  };
+  const useful=[result.amount,result.due_on,result.invoice_number,result.iuv].filter(Boolean).length;
+  return{data:result,confidence:Math.min(.95,.45+useful*.12+(files.length?0.1:0))};
+}
+
 export function gmailRollingRange(now=new Date(),days=30){
   const day=now.toISOString().slice(0,10);
   return{window:`last-${days}-days:${day}`,query:`newer_than:${days}d`};
