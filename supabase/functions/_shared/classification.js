@@ -71,6 +71,18 @@ export function supportedFinancialAttachment(file={}){
   return supported&&size>=0&&size<=10485760;
 }
 
+const normalizedIdentifier=value=>String(value||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+export function paymentInvoiceMatch(payment={},invoice={}){
+  const paymentIuv=normalizedIdentifier(payment.iuv),invoiceIuv=normalizedIdentifier(invoice.iuv);
+  const paymentNumber=normalizedIdentifier(payment.invoice_number),invoiceNumber=normalizedIdentifier(invoice.invoice_number);
+  const paymentAmount=Number(payment.amount),invoiceAmount=Number(invoice.amount);
+  const amountKnown=paymentAmount>0&&invoiceAmount>0,amountMatches=amountKnown&&Math.abs(paymentAmount-invoiceAmount)<0.01;
+  if(amountKnown&&!amountMatches)return{matched:false,confidence:0,reason:'amount_conflict'};
+  if(paymentIuv&&invoiceIuv&&paymentIuv===invoiceIuv)return{matched:true,confidence:amountMatches?1:.97,reason:'exact_iuv'};
+  if(paymentNumber&&invoiceNumber&&paymentNumber===invoiceNumber&&amountMatches)return{matched:true,confidence:.98,reason:'exact_invoice_number_and_amount'};
+  return{matched:false,confidence:0,reason:'insufficient_evidence'};
+}
+
 export function gmailRollingRange(now=new Date(),days=30){
   const day=now.toISOString().slice(0,10);
   return{window:`last-${days}-days:${day}`,query:`newer_than:${days}d`};
