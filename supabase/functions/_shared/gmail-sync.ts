@@ -1,8 +1,12 @@
 import { adminClient, clientId, clientSecret, decryptToken, encryptToken } from './gmail.ts'
-import { classifyEmail, extractFinancialFields, financialStatus, gmailRollingRange } from './classification.js'
+import { classifyEmail, extractFinancialFields, financialStatus, gmailRollingRange, supportedFinancialAttachment } from './classification.js'
 
 function header(message: any, name: string) { return message.payload?.headers?.find((item: any) => item.name?.toLowerCase() === name.toLowerCase())?.value ?? '' }
 function attachmentNames(part: any): string[] { return (part?.filename ? [part.filename] : []).concat((part?.parts ?? []).flatMap(attachmentNames)) }
+function attachmentParts(part: any): any[] { return (part?.filename && (part?.body?.attachmentId || part?.body?.data) ? [{ filename: part.filename, mimeType: part.mimeType ?? 'application/octet-stream', size: Number(part.body?.size ?? 0), attachmentId: part.body?.attachmentId ?? null, data: part.body?.data ?? null }] : []).concat((part?.parts ?? []).flatMap(attachmentParts)) }
+function safeFileName(value: string) { return value.normalize('NFKD').replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'documento' }
+function decodeBase64Url(value: string) { const normalized = value.replace(/-/g, '+').replace(/_/g, '/'), binary = atob(normalized); return Uint8Array.from(binary, character => character.charCodeAt(0)) }
+async function sha256(value: Uint8Array) { return [...new Uint8Array(await crypto.subtle.digest('SHA-256', value))].map(byte => byte.toString(16).padStart(2, '0')).join('') }
 const pause = (milliseconds: number) => new Promise(resolve => setTimeout(resolve, milliseconds))
 async function googleFetch(url: string | URL, accessToken: string) {
   let response: Response | null = null
@@ -33,6 +37,30 @@ async function accessTokenFor(accountId: string, userId: string) {
     await admin.from('gmail_credentials').update({ access_token_encrypted: await encryptToken(accessToken), token_expires_at: new Date(Date.now() + Number(refreshed.expires_in ?? 3600) * 1000).toISOString(), updated_at: new Date().toISOString() }).eq('email_account_id', accountId)
   }
   return accessToken
+}
+
+async function saveAttachments(admin: any, message: any, accessToken: string, userId: string, accountId: string, emailId: string) {
+  const parts = attachmentParts(message.payload).filter(supportedFinancialAttachment).slice(0, 3)
+  for (const part of parts) {
+    let encoded = part.data
+    if (!encoded && part.attachmentId) {
+      const response = await googleFetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(message.id)}/attachments/${encodeURIComponent(part.attachmentId)}`, accessToken)
+      const body = await response.json()
+      if (!response.ok || !body.data) continue
+      encoded = body.data
+    }
+    if (!encoded) continue
+    const bytes = decodeBase64Url(encoded)
+    if (!bytes.byteLength || bytes.byteLength > 10485760) continue
+    const fileHash = await sha256(bytes)
+    const { data: existing } = await admin.from('attachments').select('id').eq('user_id', userId).eq('file_hash', fileHash).maybeSingle()
+    if (existing) continue
+    const path = `${userId}/email/${accountId}/${message.id}/${safeFileName(part.filename)}`
+    const upload = await admin.storage.from('invoice-documents').upload(path, bytes, { contentType: part.mimeType, upsert: false })
+    if (upload.error && upload.error.statusCode !== '409') throw upload.error
+    const inserted = await admin.from('attachments').insert({ user_id: userId, email_id: emailId, file_name: part.filename, mime_type: part.mimeType, byte_size: bytes.byteLength, file_hash: fileHash, storage_path: path })
+    if (inserted.error && inserted.error.code !== '23505') { await admin.storage.from('invoice-documents').remove([path]); throw inserted.error }
+  }
 }
 
 async function syncAccountPage(account: any, userId: string, restart: boolean) {
@@ -66,8 +94,9 @@ async function syncAccountPage(account: any, userId: string, restart: boolean) {
         return { imported: 1, newUseful: 0 }
       }
       const extracted = extractFinancialFields(subject, sender, snippet, files)
-      const { error } = await admin.from('emails').upsert({ user_id: userId, email_account_id: account.id, provider_message_id: message.id, thread_id: message.threadId ?? null, sender: sender || null, subject: subject || '(senza oggetto)', received_at: message.internalDate ? new Date(Number(message.internalDate)).toISOString() : null, classification: messageClassification, financial_status: status, extracted_data: extracted.data, confidence: extracted.confidence, processing_state: 'complete', last_error: null }, { onConflict: 'email_account_id,provider_message_id' })
+      const { data: savedEmail, error } = await admin.from('emails').upsert({ user_id: userId, email_account_id: account.id, provider_message_id: message.id, thread_id: message.threadId ?? null, sender: sender || null, subject: subject || '(senza oggetto)', received_at: message.internalDate ? new Date(Number(message.internalDate)).toISOString() : null, classification: messageClassification, financial_status: status, extracted_data: extracted.data, confidence: extracted.confidence, processing_state: 'complete', last_error: null }, { onConflict: 'email_account_id,provider_message_id' }).select('id').single()
       if (error) throw error
+      await saveAttachments(admin, message, accessToken, userId, account.id, savedEmail.id)
       return { imported: 1, newUseful: !existing ? 1 : 0 }
     } catch (error) {
       const existing = await admin.from('emails').select('retry_count').eq('email_account_id', account.id).eq('provider_message_id', messageId).maybeSingle()
