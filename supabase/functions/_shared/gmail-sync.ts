@@ -1,5 +1,5 @@
 import { adminClient, clientId, clientSecret, decryptToken, encryptToken } from './gmail.ts'
-import { classifyEmail, financialStatus, gmailRollingRange } from './classification.js'
+import { classifyEmail, extractFinancialFields, financialStatus, gmailRollingRange } from './classification.js'
 
 function header(message: any, name: string) { return message.payload?.headers?.find((item: any) => item.name?.toLowerCase() === name.toLowerCase())?.value ?? '' }
 function attachmentNames(part: any): string[] { return (part?.filename ? [part.filename] : []).concat((part?.parts ?? []).flatMap(attachmentNames)) }
@@ -65,7 +65,8 @@ async function syncAccountPage(account: any, userId: string, restart: boolean) {
         }
         return { imported: 1, newUseful: 0 }
       }
-      const { error } = await admin.from('emails').upsert({ user_id: userId, email_account_id: account.id, provider_message_id: message.id, thread_id: message.threadId ?? null, sender: sender || null, subject: subject || '(senza oggetto)', received_at: message.internalDate ? new Date(Number(message.internalDate)).toISOString() : null, classification: messageClassification, financial_status: status, processing_state: 'complete', last_error: null }, { onConflict: 'email_account_id,provider_message_id' })
+      const extracted = extractFinancialFields(subject, sender, snippet, files)
+      const { error } = await admin.from('emails').upsert({ user_id: userId, email_account_id: account.id, provider_message_id: message.id, thread_id: message.threadId ?? null, sender: sender || null, subject: subject || '(senza oggetto)', received_at: message.internalDate ? new Date(Number(message.internalDate)).toISOString() : null, classification: messageClassification, financial_status: status, extracted_data: extracted.data, confidence: extracted.confidence, processing_state: 'complete', last_error: null }, { onConflict: 'email_account_id,provider_message_id' })
       if (error) throw error
       return { imported: 1, newUseful: !existing ? 1 : 0 }
     } catch (error) {
