@@ -1,5 +1,7 @@
 export function classifyEmail(subject='',sender='',snippet='',files=[]){
   const text=`${subject} ${sender} ${snippet}`.toLowerCase();
+  if(/la tua fattura da apple/.test(text)&&/email\.apple\.com/.test(text))return'receipt';
+  if(/ricevuta dell['’]ordine google play/.test(text)&&/googleplay-noreply@google\.com/.test(text))return'receipt';
   if(/newsletter|unsubscribe|promozion|offerta|sconto|marketing|pubblicit/.test(text))return'ignore';
   if(/pagamento (ricevuto|avvenuto|confermato)|conferma (del )?pagamento|payment confirmation/.test(text))return'payment_confirmation';
   const financialFile=files.some(name=>/\.(pdf|jpg|jpeg|png|webp)$/i.test(name));
