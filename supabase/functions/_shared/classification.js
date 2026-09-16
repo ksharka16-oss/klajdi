@@ -63,6 +63,14 @@ export function extractFinancialFields(subject='',sender='',snippet='',files=[])
   return{data:result,confidence:Math.min(.95,.45+useful*.12+(files.length?0.1:0))};
 }
 
+export function supportedFinancialAttachment(file={}){
+  const mime=String(file.mimeType||file.mime_type||'').toLowerCase();
+  const name=String(file.filename||file.file_name||'').toLowerCase();
+  const size=Number(file.size||file.byte_size||0);
+  const supported=['application/pdf','image/jpeg','image/png','image/webp'].includes(mime)||/\.(pdf|jpe?g|png|webp)$/.test(name);
+  return supported&&size>=0&&size<=10485760;
+}
+
 export function gmailRollingRange(now=new Date(),days=30){
   const day=now.toISOString().slice(0,10);
   return{window:`last-${days}-days:${day}`,query:`newer_than:${days}d`};
