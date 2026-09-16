@@ -2,8 +2,8 @@ export function classifyEmail(subject='',sender='',snippet='',files=[]){
   const text=`${subject} ${sender} ${snippet}`.toLowerCase();
   if(/newsletter|unsubscribe|promozion|offerta|sconto|marketing|pubblicit/.test(text))return'ignore';
   if(/pagamento (ricevuto|avvenuto|confermato)|conferma (del )?pagamento|payment confirmation/.test(text))return'payment_confirmation';
-  if(/pagopa|\biuv\b/.test(text))return'pagopa';
   const financialFile=files.some(name=>/\.(pdf|jpg|jpeg|png|webp)$/i.test(name));
+  if(/\biuv\b/.test(text)||(financialFile&&/pagopa/.test(text)&&strongInvoiceSignals(text)>=2))return'pagopa';
   if(financialFile&&/ricevuta|scontrino|receipt/.test(text))return'receipt';
   if(financialFile&&/fattura|invoice|bolletta/.test(text))return'invoice';
   if(financialFile&&strongInvoiceSignals(text)>=3)return'financial_document';
