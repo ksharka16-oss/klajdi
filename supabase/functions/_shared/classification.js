@@ -4,6 +4,7 @@ export function classifyEmail(subject='',sender='',snippet='',files=[]){
   if(/ricevuta dell['’]ordine google play/.test(text)&&/googleplay-noreply@google\.com/.test(text))return'receipt';
   if(/asilinido@comune\.paderno-dugnano\.mi\.it/.test(text)&&/asili nido|quietanz|fattur|pagamento/.test(text))return'financial_document';
   if(/newsletter|unsubscribe|promozion|offerta|sconto|marketing|pubblicit/.test(text))return'ignore';
+  if(familyPaymentSignals(text))return'financial_document';
   if(/pagamento (ricevuto|avvenuto|confermato)|conferma (del )?pagamento|payment confirmation/.test(text))return'payment_confirmation';
   const financialFile=files.some(name=>/\.(pdf|jpg|jpeg|png|webp)$/i.test(name));
   if(/\biuv\D{0,20}\d{10,35}/.test(text)||(financialFile&&/pagopa/.test(text)&&strongInvoiceSignals(text)>=2))return'pagopa';
@@ -23,11 +24,16 @@ function strongInvoiceSignals(text=''){
   ].filter(Boolean).length;
 }
 
+function familyPaymentSignals(text=''){
+  return/asilo|nido|mensa scolastica|retta scolastica|condominio|affitto|utenza domestica/.test(text)&&/retta|quota|bolletta|canone|da pagare|avviso di pagamento|scadenza|pagamento/.test(text);
+}
+
 export function financialStatus(classification='',subject='',sender='',snippet='',files=[]){
   if(['receipt','payment_confirmation'].includes(classification))return'paid';
   if(['invoice','pagopa'].includes(classification))return'to_pay';
   const text=`${subject} ${sender} ${snippet}`.toLowerCase();
-  if(classification==='financial_document'&&/asilinido@comune\.paderno-dugnano\.mi\.it/.test(text))return'to_review';
+  if(classification==='financial_document'&&/asilinido@comune\.paderno-dugnano\.mi\.it/.test(text))return'to_pay';
+  if(classification==='financial_document'&&familyPaymentSignals(text))return'to_pay';
   const financialFile=files.some(name=>/\.(pdf|jpg|jpeg|png|webp)$/i.test(name));
   if(classification==='financial_document'&&financialFile&&strongInvoiceSignals(text)>=3)return'to_review';
   return null;
