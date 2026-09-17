@@ -55,7 +55,8 @@ function isoDate(value=''){
 
 export function extractFinancialFields(subject='',sender='',snippet='',files=[]){
   const text=`${subject} ${snippet}`.replace(/\s+/g,' ').trim();
-  const amountMatch=text.match(/(?:€|eur)\s*([0-9][0-9.\s]*(?:,[0-9]{2})?|[0-9]+(?:\.[0-9]{2})?)|([0-9][0-9.\s]*(?:,[0-9]{2})?|[0-9]+(?:\.[0-9]{2})?)\s*(?:€|eur)/i);
+  const amountPattern='(?:[0-9]{1,3}(?:\\.[0-9]{3})*,[0-9]{2}|[0-9]{1,6}[,.][0-9]{2})';
+  const amountMatch=text.match(new RegExp(`(?:€|eur)\\s*(${amountPattern})|(${amountPattern})\\s*(?:€|eur)`,'i'));
   const dueMatch=text.match(/(?:scadenza|entro il|due date)\D{0,24}(\d{1,2}[\/.-]\d{1,2}[\/.-]\d{4})/i);
   const iuvMatch=text.match(/\biuv\s*[:#-]?\s*([0-9]{10,35})/i);
   const numberMatch=text.match(/(?:fattura|invoice)\s*(?:n(?:umero)?\.?|#)?\s*[:#-]?\s*([a-z0-9][a-z0-9\/_-]{2,})/i);
