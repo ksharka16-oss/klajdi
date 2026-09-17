@@ -2,6 +2,7 @@ export function classifyEmail(subject='',sender='',snippet='',files=[]){
   const text=`${subject} ${sender} ${snippet}`.toLowerCase();
   if(/la tua fattura da apple/.test(text)&&/email\.apple\.com/.test(text))return'receipt';
   if(/ricevuta dell['’]ordine google play/.test(text)&&/googleplay-noreply@google\.com/.test(text))return'receipt';
+  if(/asilinido@comune\.paderno-dugnano\.mi\.it/.test(text)&&/asili nido|quietanz|fattur|pagamento/.test(text))return'financial_document';
   if(/newsletter|unsubscribe|promozion|offerta|sconto|marketing|pubblicit/.test(text))return'ignore';
   if(/pagamento (ricevuto|avvenuto|confermato)|conferma (del )?pagamento|payment confirmation/.test(text))return'payment_confirmation';
   const financialFile=files.some(name=>/\.(pdf|jpg|jpeg|png|webp)$/i.test(name));
@@ -26,6 +27,7 @@ export function financialStatus(classification='',subject='',sender='',snippet='
   if(['receipt','payment_confirmation'].includes(classification))return'paid';
   if(['invoice','pagopa'].includes(classification))return'to_pay';
   const text=`${subject} ${sender} ${snippet}`.toLowerCase();
+  if(classification==='financial_document'&&/asilinido@comune\.paderno-dugnano\.mi\.it/.test(text))return'to_review';
   const financialFile=files.some(name=>/\.(pdf|jpg|jpeg|png|webp)$/i.test(name));
   if(classification==='financial_document'&&financialFile&&strongInvoiceSignals(text)>=3)return'to_review';
   return null;
