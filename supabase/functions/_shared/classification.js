@@ -1,5 +1,6 @@
 export function classifyEmail(subject='',sender='',snippet='',files=[]){
   const text=`${subject} ${sender} ${snippet}`.toLowerCase();
+  if(/attestazione di pagamento contestata/.test(text)&&/inps/.test(text))return'ignore';
   if(/la tua fattura da apple/.test(text)&&/email\.apple\.com/.test(text))return'receipt';
   if(/ricevuta dell['’]ordine google play/.test(text)&&/googleplay-noreply@google\.com/.test(text))return'receipt';
   if(/asilinido@comune\.paderno-dugnano\.mi\.it/.test(text)&&/asili nido|quietanz|fattur|pagamento/.test(text))return'financial_document';
@@ -32,10 +33,10 @@ export function financialStatus(classification='',subject='',sender='',snippet='
   if(['receipt','payment_confirmation'].includes(classification))return'paid';
   if(['invoice','pagopa'].includes(classification))return'to_pay';
   const text=`${subject} ${sender} ${snippet}`.toLowerCase();
-  if(classification==='financial_document'&&/asilinido@comune\.paderno-dugnano\.mi\.it/.test(text)&&/quietanz/.test(text)&&/bonus|inps|scaricare|gi[aà] pagat/.test(text))return null;
-  if(classification==='financial_document'&&/asilinido@comune\.paderno-dugnano\.mi\.it/.test(text))return'to_pay';
-  if(classification==='financial_document'&&familyPaymentSignals(text))return'to_pay';
   const financialFile=files.some(name=>/\.(pdf|jpg|jpeg|png|webp)$/i.test(name));
+  if(classification==='financial_document'&&/asilinido@comune\.paderno-dugnano\.mi\.it/.test(text)&&/quietanz/.test(text)&&/bonus|inps|scaricare|gi[aà] pagat/.test(text))return null;
+  if(classification==='financial_document'&&/asilinido@comune\.paderno-dugnano\.mi\.it/.test(text))return financialFile||/emissione bolletta|avviso di pagamento|retta del mese|importo dovuto|da pagare|scadenza/.test(text)?'to_pay':null;
+  if(classification==='financial_document'&&familyPaymentSignals(text))return'to_pay';
   if(classification==='financial_document'&&financialFile&&strongInvoiceSignals(text)>=3)return'to_review';
   return null;
 }
