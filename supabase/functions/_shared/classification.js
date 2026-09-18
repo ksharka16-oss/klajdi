@@ -100,6 +100,11 @@ export function autoInvoiceCandidate(classification='',status='',data={},files=[
   return status==='to_pay'&&['invoice','pagopa'].includes(classification)&&amount>0&&Boolean(data.supplier)&&strongReference;
 }
 
+export function paidExpenseCandidate(classification='',status='',data={}){
+  const amount=Number(data.amount);
+  return classification==='receipt'&&status==='paid'&&amount>0&&Boolean(data.supplier);
+}
+
 export function gmailRollingRange(now=new Date(),days=30){
   const day=now.toISOString().slice(0,10);
   return{window:`last-${days}-days:${day}`,query:`newer_than:${days}d`};
