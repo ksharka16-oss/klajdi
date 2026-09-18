@@ -1,6 +1,6 @@
 import test from'node:test';
 import assert from'node:assert/strict';
-import{autoInvoiceCandidate,classifyEmail,extractFinancialFields,financialStatus,gmailRollingRange,paymentInvoiceMatch,supportedFinancialAttachment}from'../supabase/functions/_shared/classification.js';
+import{autoInvoiceCandidate,classifyEmail,extractFinancialFields,financialStatus,gmailRollingRange,paidExpenseCandidate,paymentInvoiceMatch,supportedFinancialAttachment}from'../supabase/functions/_shared/classification.js';
 
 test('una mail normale non diventa fattura',()=>assert.equal(classifyEmail('Ciao','Mario','Come stai?',[]),'normal'));
 test('la parola fattura senza allegato resta normale',()=>assert.equal(classifyEmail('Informazioni fattura','Azienda','Nessun documento',[]),'normal'));
@@ -19,4 +19,5 @@ test('non unisce l anno al prezzo Apple',()=>{const result=extractFinancialField
 test('accetta solo allegati finanziari sicuri entro 10 MB',()=>{assert.equal(supportedFinancialAttachment({filename:'fattura.pdf',mimeType:'application/pdf',size:1000}),true);assert.equal(supportedFinancialAttachment({filename:'pagina.html',mimeType:'text/html',size:1000}),false);assert.equal(supportedFinancialAttachment({filename:'fattura.pdf',mimeType:'application/pdf',size:10485761}),false)});
 test('segna pagata solo con una corrispondenza forte',()=>{assert.deepEqual(paymentInvoiceMatch({iuv:'123 456',amount:120},{iuv:'123456',amount:120}),{matched:true,confidence:1,reason:'exact_iuv'});assert.equal(paymentInvoiceMatch({invoice_number:'AB-123',amount:120},{invoice_number:'AB123',amount:120}).matched,true);assert.equal(paymentInvoiceMatch({invoice_number:'AB-123',amount:125},{invoice_number:'AB123',amount:120}).matched,false);assert.equal(paymentInvoiceMatch({amount:120},{amount:120}).matched,false)});
 test('crea automaticamente solo fatture complete e forti',()=>{assert.equal(autoInvoiceCandidate('invoice','to_pay',{supplier:'Energia',amount:120,invoice_number:'AB-123'},['fattura.pdf']),true);assert.equal(autoInvoiceCandidate('pagopa','to_pay',{supplier:'Ente',amount:null},[]),false);assert.equal(autoInvoiceCandidate('invoice','to_pay',{supplier:'Energia',amount:120},[]),false)});
+test('crea una spesa solo da una ricevuta pagata con importo certo',()=>{assert.equal(paidExpenseCandidate('receipt','paid',{supplier:'Apple',amount:1.99}),true);assert.equal(paidExpenseCandidate('payment_confirmation','paid',{supplier:'Banca',amount:1.99}),false);assert.equal(paidExpenseCandidate('receipt','paid',{supplier:'Apple',amount:null}),false)});
 test('la ricerca Gmail copre gli ultimi 30 giorni',()=>assert.deepEqual(gmailRollingRange(new Date('2026-09-15T12:00:00Z')),{window:'last-30-days:2026-09-15',query:'newer_than:30d'}));
