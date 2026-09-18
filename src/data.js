@@ -27,3 +27,8 @@ export function validateInvoiceFile(file){
   return'';
 }
 export const storageFileName=name=>String(name||'documento').normalize('NFKD').replace(/[^a-zA-Z0-9._-]+/g,'-').replace(/^-+|-+$/g,'')||'documento';
+export function mergeFinancialExtractions(base={},results=[]){
+  const extracted={...base},ordered=[...results].sort((a,b)=>Number(b.confidence||0)-Number(a.confidence||0));
+  for(const result of ordered)for(const[key,value]of Object.entries(result.extracted||{}))if(value!=null&&value!==''&&(extracted[key]==null||extracted[key]===''))extracted[key]=value;
+  return{extracted,confidence:Math.max(0,...ordered.map(result=>Number(result.confidence||0)))};
+}
