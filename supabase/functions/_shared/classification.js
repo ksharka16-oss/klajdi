@@ -32,6 +32,7 @@ export function financialStatus(classification='',subject='',sender='',snippet='
   if(['receipt','payment_confirmation'].includes(classification))return'paid';
   if(['invoice','pagopa'].includes(classification))return'to_pay';
   const text=`${subject} ${sender} ${snippet}`.toLowerCase();
+  if(classification==='financial_document'&&/asilinido@comune\.paderno-dugnano\.mi\.it/.test(text)&&/quietanz/.test(text)&&/bonus|inps|scaricare|gi[aà] pagat/.test(text))return null;
   if(classification==='financial_document'&&/asilinido@comune\.paderno-dugnano\.mi\.it/.test(text))return'to_pay';
   if(classification==='financial_document'&&familyPaymentSignals(text))return'to_pay';
   const financialFile=files.some(name=>/\.(pdf|jpg|jpeg|png|webp)$/i.test(name));
