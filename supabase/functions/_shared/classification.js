@@ -108,5 +108,5 @@ export function paidExpenseCandidate(classification='',status='',data={}){
 
 export function gmailRollingRange(now=new Date(),days=30){
   const day=now.toISOString().slice(0,10);
-  return{window:`last-${days}-days:${day}`,query:`newer_than:${days}d`};
+  return{window:`last-${days}-days-financial-v2:${day}`,query:`newer_than:${days}d {has:attachment fattura bolletta ricevuta pagamento pagopa IUV asilo nido retta scadenza}`};
 }
