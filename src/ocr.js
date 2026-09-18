@@ -6,9 +6,9 @@ const firstMatch=(text,patterns)=>{for(const pattern of patterns){const match=te
 export function parseInvoiceText(rawText){
   const text=String(rawText||'').replace(/\r/g,'\n'),singleLine=text.replace(/\s+/g,' ');
   const supplier=firstMatch(text,[/(?:fornitore|emittente|ragione sociale)\s*[:\-]?\s*([^\n]{3,100})/i]);
-  const amount=amountValue(firstMatch(singleLine,[/(?:totale\s+(?:fattura|documento|da pagare)|importo\s+totale|totale)\D{0,25}(\d{1,3}(?:\.\d{3})*,\d{2})/i,/€\s*(\d{1,3}(?:\.\d{3})*,\d{2})/i]));
+  const amount=amountValue(firstMatch(singleLine,[/\b(?:TOTALE\s+(?:DA PAGARE|DOVUTO|FATTURA|DOCUMENTO|RETTA)|IMPORTO\s+TOTALE|TOTALE)\D{0,25}(?:€\s*)?(\d{1,3}(?:\.\d{3})*,\d{2})/i,/(?:€\s*)?(\d{1,3}(?:\.\d{3})*,\d{2})\s+(?:TOTALE(?:\s+(?:RETTA|DA PAGARE|DOVUTO|FATTURA|DOCUMENTO))?|IMPORTO\s+TOTALE)\b/i,/€\s*(\d{1,3}(?:\.\d{3})*,\d{2})/i]));
   const invoiceNumber=firstMatch(singleLine,[/(?:numero\s+fattura|n[.°º]\s*fattura|fattura\s+n[.°º]?)\s*[:\-]?\s*([A-Z0-9/_-]{2,40})/i]);
-  const iuv=firstMatch(singleLine,[/\bIUV\s*[:\-]?\s*([0-9 ]{12,25})/i])?.replace(/\s/g,'')||null;
+  const iuv=firstMatch(singleLine,[/\bIUV\s*[:\-]?\s*([0-9 ]{12,25})/i,/\b([0-9 ]{12,25})\s+CODICE\s+IUV\b/i])?.replace(/\s/g,'')||null;
   const issuedOn=isoDate(firstMatch(singleLine,[/(?:data\s+(?:documento|emissione)|emessa\s+il)\s*[:\-]?\s*(\d{1,2}[/.\-]\d{1,2}[/.\-]\d{4})/i]));
   const dueOn=isoDate(firstMatch(singleLine,[/(?:scadenza|pagare\s+entro)\s*[:\-]?\s*(\d{1,2}[/.\-]\d{1,2}[/.\-]\d{4})/i]));
   const extracted={supplier,amount,invoice_number:invoiceNumber,iuv,issued_on:issuedOn,due_on:dueOn};
