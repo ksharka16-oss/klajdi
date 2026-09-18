@@ -112,3 +112,14 @@ export function gmailRollingRange(now=new Date()){
   const previousDay=new Date(Date.UTC(year,monthNumber-1,0)).toISOString().slice(0,10).replace(/-/g,'/');
   return{window:`current-month-v3:${month}`,query:`after:${previousDay}`};
 }
+
+export function invoiceDeadlineReminder(invoice={},today=''){
+  if(invoice.status!=='to_pay'||!invoice.due_on||!today)return null;
+  const days=Math.round((Date.parse(`${invoice.due_on}T00:00:00Z`)-Date.parse(`${today}T00:00:00Z`))/86400000);
+  const amount=new Intl.NumberFormat('it-IT',{style:'currency',currency:invoice.currency||'EUR'}).format(Number(invoice.amount||0));
+  const supplier=invoice.supplier||'Fattura';
+  if([7,3,1].includes(days))return{title:'Fattura in scadenza',body:`${supplier}: ${amount}, scade tra ${days} ${days===1?'giorno':'giorni'}.`};
+  if(days===0)return{title:'Fattura in scadenza oggi',body:`${supplier}: ${amount} da pagare oggi.`};
+  if([-1,-3,-7,-14].includes(days))return{title:'Fattura scaduta',body:`${supplier}: ${amount}, scaduta da ${Math.abs(days)} ${days===-1?'giorno':'giorni'}.`};
+  return null;
+}
