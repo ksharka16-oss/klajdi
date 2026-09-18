@@ -16,7 +16,7 @@ Deno.serve(async (req) => {
       maxPages: 1,
     })
     if (!result.accounts) return json({ error: 'Collega prima un account Gmail.' }, 400, origin)
-    return json({ ...result, window: 'last-30-days' }, 200, origin)
+    return json({ ...result, window: 'current-month' }, 200, origin)
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : 'Sincronizzazione Gmail non riuscita.' }, 502, origin)
   }
