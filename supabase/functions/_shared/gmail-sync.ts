@@ -1,5 +1,5 @@
 import { adminClient, clientId, clientSecret, decryptToken, encryptToken } from './gmail.ts'
-import { autoInvoiceCandidate, classifyEmail, extractFinancialFields, financialStatus, gmailRollingRange, paymentInvoiceMatch, supportedFinancialAttachment } from './classification.js'
+import { autoInvoiceCandidate, classifyEmail, extractFinancialFields, financialStatus, gmailRollingRange, paidExpenseCandidate, paymentInvoiceMatch, supportedFinancialAttachment } from './classification.js'
 
 function header(message: any, name: string) { return message.payload?.headers?.find((item: any) => item.name?.toLowerCase() === name.toLowerCase())?.value ?? '' }
 function attachmentNames(part: any): string[] { return (part?.filename ? [part.filename] : []).concat((part?.parts ?? []).flatMap(attachmentNames)) }
@@ -94,6 +94,23 @@ async function createInvoiceFromEmail(admin: any, userId: string, emailId: strin
   return invoiceId
 }
 
+async function createExpenseFromPaidEmail(admin: any, userId: string, emailId: string, classification: string, status: string, extracted: any, receivedAt: string | null) {
+  if (!paidExpenseCandidate(classification, status, extracted)) return null
+  const fingerprint = `email:${emailId}`
+  const { data: existing, error: lookupError } = await admin.from('transactions').select('id').eq('user_id', userId).eq('fingerprint', fingerprint).maybeSingle()
+  if (lookupError) throw lookupError
+  if (existing) return existing.id
+  const transactionId = crypto.randomUUID()
+  const occurredOn = receivedAt ? new Date(receivedAt).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10)
+  const inserted = await admin.from('transactions').insert({ id: transactionId, user_id: userId, kind: 'expense', amount: Number(extracted.amount), currency: 'EUR', description: `Pagamento ${extracted.supplier}`, occurred_on: occurredOn, source: 'email', external_id: emailId, fingerprint, reconciled: false }).select('id').single()
+  if (inserted.error) {
+    if (inserted.error.code === '23505') return null
+    throw inserted.error
+  }
+  await admin.from('audit_log').insert({ user_id: userId, action: 'expense_created_from_paid_email', entity_type: 'transaction', entity_id: transactionId, metadata: { email_id: emailId, classification, amount: Number(extracted.amount) } })
+  return transactionId
+}
+
 async function syncAccountPage(account: any, userId: string, restart: boolean) {
   const admin = adminClient(), rollingRange = gmailRollingRange()
   let cursor: { window?: string; pageToken?: string | null; complete?: boolean } = {}
@@ -125,10 +142,12 @@ async function syncAccountPage(account: any, userId: string, restart: boolean) {
         return { imported: 1, newUseful: 0 }
       }
       const extracted = extractFinancialFields(subject, sender, content, files)
-      const { data: savedEmail, error } = await admin.from('emails').upsert({ user_id: userId, email_account_id: account.id, provider_message_id: message.id, thread_id: message.threadId ?? null, sender: sender || null, subject: subject || '(senza oggetto)', received_at: message.internalDate ? new Date(Number(message.internalDate)).toISOString() : null, classification: messageClassification, financial_status: status, extracted_data: extracted.data, confidence: extracted.confidence, processing_state: 'complete', last_error: null }, { onConflict: 'email_account_id,provider_message_id' }).select('id').single()
+      const receivedAt = message.internalDate ? new Date(Number(message.internalDate)).toISOString() : null
+      const { data: savedEmail, error } = await admin.from('emails').upsert({ user_id: userId, email_account_id: account.id, provider_message_id: message.id, thread_id: message.threadId ?? null, sender: sender || null, subject: subject || '(senza oggetto)', received_at: receivedAt, classification: messageClassification, financial_status: status, extracted_data: extracted.data, confidence: extracted.confidence, processing_state: 'complete', last_error: null }, { onConflict: 'email_account_id,provider_message_id' }).select('id').single()
       if (error) throw error
       await saveAttachments(admin, message, accessToken, userId, account.id, savedEmail.id)
       if (status === 'to_pay') await createInvoiceFromEmail(admin, userId, savedEmail.id, messageClassification, status, extracted.data, files)
+      if (status === 'paid') await createExpenseFromPaidEmail(admin, userId, savedEmail.id, messageClassification, status, extracted.data, receivedAt)
       if (messageClassification === 'payment_confirmation') {
         const reconciliation = await reconcilePaymentConfirmation(admin, userId, savedEmail.id, extracted.data)
         if (reconciliation) await admin.from('emails').update({ extracted_data: { ...extracted.data, matched_invoice_id: reconciliation.invoice_id, payment_match: reconciliation } }).eq('id', savedEmail.id).eq('user_id', userId)
