@@ -106,7 +106,8 @@ export function paidExpenseCandidate(classification='',status='',data={}){
   return classification==='receipt'&&status==='paid'&&amount>0&&Boolean(data.supplier);
 }
 
-export function gmailRollingRange(now=new Date(),days=30){
-  const day=now.toISOString().slice(0,10);
-  return{window:`last-${days}-days-financial-v2:${day}`,query:`newer_than:${days}d {has:attachment fattura bolletta ricevuta pagamento pagopa IUV asilo nido retta scadenza}`};
+export function gmailRollingRange(now=new Date()){
+  const month=now.toISOString().slice(0,7),[year,monthNumber]=month.split('-').map(Number);
+  const previousDay=new Date(Date.UTC(year,monthNumber-1,0)).toISOString().slice(0,10).replace(/-/g,'/');
+  return{window:`current-month-v3:${month}`,query:`after:${previousDay}`};
 }
