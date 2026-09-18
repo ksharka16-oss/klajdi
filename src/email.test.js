@@ -1,6 +1,6 @@
 import test from'node:test';
 import assert from'node:assert/strict';
-import{autoInvoiceCandidate,classifyEmail,extractFinancialFields,financialStatus,gmailRollingRange,paidExpenseCandidate,paymentInvoiceMatch,supportedFinancialAttachment}from'../supabase/functions/_shared/classification.js';
+import{autoInvoiceCandidate,classifyEmail,extractFinancialFields,financialStatus,gmailRollingRange,invoiceDeadlineReminder,paidExpenseCandidate,paymentInvoiceMatch,supportedFinancialAttachment}from'../supabase/functions/_shared/classification.js';
 
 test('una mail normale non diventa fattura',()=>assert.equal(classifyEmail('Ciao','Mario','Come stai?',[]),'normal'));
 test('la parola fattura senza allegato resta normale',()=>assert.equal(classifyEmail('Informazioni fattura','Azienda','Nessun documento',[]),'normal'));
@@ -24,3 +24,4 @@ test('segna pagata solo con una corrispondenza forte',()=>{assert.deepEqual(paym
 test('crea automaticamente solo fatture complete e forti',()=>{assert.equal(autoInvoiceCandidate('invoice','to_pay',{supplier:'Energia',amount:120,invoice_number:'AB-123'},['fattura.pdf']),true);assert.equal(autoInvoiceCandidate('pagopa','to_pay',{supplier:'Ente',amount:null},[]),false);assert.equal(autoInvoiceCandidate('invoice','to_pay',{supplier:'Energia',amount:120},[]),false)});
 test('crea una spesa solo da una ricevuta pagata con importo certo',()=>{assert.equal(paidExpenseCandidate('receipt','paid',{supplier:'Apple',amount:1.99}),true);assert.equal(paidExpenseCandidate('payment_confirmation','paid',{supplier:'Banca',amount:1.99}),false);assert.equal(paidExpenseCandidate('receipt','paid',{supplier:'Apple',amount:null}),false)});
 test('la ricerca Gmail copre tutto il mese dal giorno uno',()=>assert.deepEqual(gmailRollingRange(new Date('2026-09-15T12:00:00Z')),{window:'current-month-v3:2026-09',query:'after:2026/08/31'}));
+test('ricorda le fatture a 7 3 1 giorni il giorno stesso e dopo la scadenza',()=>{const invoice={status:'to_pay',due_on:'2026-09-30',supplier:'Comune',amount:138.83};assert.match(invoiceDeadlineReminder(invoice,'2026-09-23').body,/7 giorni/);assert.match(invoiceDeadlineReminder(invoice,'2026-09-27').body,/3 giorni/);assert.match(invoiceDeadlineReminder(invoice,'2026-09-29').body,/1 giorno/);assert.match(invoiceDeadlineReminder(invoice,'2026-09-30').title,/oggi/);assert.match(invoiceDeadlineReminder(invoice,'2026-10-01').title,/scaduta/);assert.equal(invoiceDeadlineReminder(invoice,'2026-09-18'),null);assert.equal(invoiceDeadlineReminder({...invoice,status:'paid'},'2026-09-29'),null)});
