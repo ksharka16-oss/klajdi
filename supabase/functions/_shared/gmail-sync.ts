@@ -120,7 +120,7 @@ async function syncAccountPage(account: any, userId: string, restart: boolean) {
   const accessToken = await accessTokenFor(account.id, userId)
   if (!accessToken) return { imported: 0, newUseful: 0, hasMore: false }
   const listUrl = new URL('https://gmail.googleapis.com/gmail/v1/users/me/messages')
-  listUrl.searchParams.set('maxResults', '20'); listUrl.searchParams.set('q', rollingRange.query)
+  listUrl.searchParams.set('maxResults', '100'); listUrl.searchParams.set('q', rollingRange.query)
   if (cursor.pageToken) listUrl.searchParams.set('pageToken', cursor.pageToken)
   const listResponse = await googleFetch(listUrl, accessToken), list = await listResponse.json()
   if (!listResponse.ok) throw new Error(listResponse.status === 429 ? 'Gmail è temporaneamente occupato: il controllo riprenderà automaticamente.' : 'Gmail non è raggiungibile o i permessi sono scaduti.')
