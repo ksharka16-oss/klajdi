@@ -1,21 +1,37 @@
 import webpush from 'npm:web-push@3.6.7'
 import { adminClient, json } from '../_shared/gmail.ts'
 import { syncRecentForUser } from '../_shared/gmail-sync.ts'
+import { invoiceDeadlineReminder } from '../_shared/classification.js'
 
 function romeNow() { const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Rome', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23' }).formatToParts().map(part => [part.type, part.value])); return { date: `${parts.year}-${parts.month}-${parts.day}`, hour: Number(parts.hour) } }
-async function sendPush(userId: string, count: number) {
+async function sendPush(userId: string, title: string, body: string, url = 'https://klajdi.vercel.app/?page=Email') {
   const admin = adminClient(), { data: secrets } = await admin.from('soldi_system_secrets').select('name,secret_value').in('name', ['vapid_public', 'vapid_private'])
   const values = Object.fromEntries((secrets ?? []).map(item => [item.name, item.secret_value])); if (!values.vapid_public || !values.vapid_private) return
   webpush.setVapidDetails('mailto:notifications@klajdi.vercel.app', values.vapid_public, values.vapid_private)
   const { data: subscriptions } = await admin.from('push_subscriptions').select('*').eq('user_id', userId)
-  const payload = JSON.stringify({ title: 'SOLDI', body: `${count} nuove email finanziarie trovate questo mese.`, url: 'https://klajdi.vercel.app/?page=Email' })
+  const payload = JSON.stringify({ title, body, url })
   await Promise.all((subscriptions ?? []).map(async subscription => { try { await webpush.sendNotification({ endpoint: subscription.endpoint, keys: { p256dh: subscription.p256dh, auth: subscription.auth } }, payload) } catch (error: any) { if ([404, 410].includes(error?.statusCode)) await admin.from('push_subscriptions').delete().eq('id', subscription.id) } }))
+}
+async function sendInvoiceReminders(userId: string, runDate: string) {
+  const admin = adminClient(), start = `${runDate}T00:00:00+00:00`, { data: invoices } = await admin.from('invoices').select('id,supplier,amount,currency,due_on,status').eq('user_id', userId).eq('status', 'to_pay').not('due_on', 'is', null)
+  let sent = 0
+  for (const invoice of invoices ?? []) {
+    const reminder = invoiceDeadlineReminder(invoice, runDate)
+    if (!reminder) continue
+    const { data: existing } = await admin.from('notifications').select('id').eq('user_id', userId).eq('kind', 'invoice_deadline').eq('title', reminder.title).eq('body', reminder.body).gte('created_at', start).maybeSingle()
+    if (existing) continue
+    const inserted = await admin.from('notifications').insert({ user_id: userId, kind: 'invoice_deadline', title: reminder.title, body: reminder.body })
+    if (inserted.error) continue
+    await sendPush(userId, reminder.title, reminder.body, 'https://klajdi.vercel.app/?page=Scadenze'); sent += 1
+  }
+  return sent
 }
 async function runScheduled(runDate: string) {
   const admin = adminClient(), { data: accounts } = await admin.from('email_accounts').select('user_id').eq('provider', 'gmail'), userIds = [...new Set((accounts ?? []).map(account => account.user_id))]
   let imported = 0, newUseful = 0
-  for (const userId of userIds) { const result = await syncRecentForUser(userId, { restart: true, maxPages: 50 }); imported += result.imported; newUseful += result.newUseful; if (result.newUseful > 0) { await admin.from('notifications').insert({ user_id: userId, title: 'Nuove email finanziarie', body: `${result.newUseful} nuove email utili trovate questo mese.` }); await sendPush(userId, result.newUseful) } }
-  await admin.from('scheduled_sync_runs').update({ completed_at: new Date().toISOString(), result: { imported, new_useful: newUseful, users: userIds.length } }).eq('run_on', runDate)
+  let reminders = 0
+  for (const userId of userIds) { const result = await syncRecentForUser(userId, { restart: true, maxPages: 50 }); imported += result.imported; newUseful += result.newUseful; if (result.newUseful > 0) { const body=`${result.newUseful} nuove email utili trovate questo mese.`; await admin.from('notifications').insert({ user_id: userId, title: 'Nuove email finanziarie', body }); await sendPush(userId, 'SOLDI', body) } reminders += await sendInvoiceReminders(userId, runDate) }
+  await admin.from('scheduled_sync_runs').update({ completed_at: new Date().toISOString(), result: { imported, new_useful: newUseful, reminders, users: userIds.length } }).eq('run_on', runDate)
 }
 Deno.serve(async req => {
   if (req.method !== 'POST') return json({ error: 'Metodo non consentito.' }, 405)
