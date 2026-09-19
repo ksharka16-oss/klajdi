@@ -11,6 +11,9 @@ export function bankBalanceSummary(accounts=[]){
   const connected=accounts.filter(account=>account.external_provider==='enablebanking'),eur=connected.filter(account=>(account.currency||'EUR').toUpperCase()==='EUR'),total=eur.reduce((sum,account)=>sum+Number(account.current_balance||0),0);
   return{accounts:connected,total,currency:'EUR'};
 }
+export function bankTransactionsForAccount(transactions=[],accountId='all'){
+  return accountId==='all'?transactions:transactions.filter(transaction=>transaction.account_id===accountId);
+}
 export function spendingInsights(transactions,month=monthKey()){
   const[year,number]=month.split('-').map(Number),previous=new Date(Date.UTC(year,number-2,1)).toISOString().slice(0,7),expenses=transactions.filter(row=>row.kind==='expense'&&!row.is_transfer);
   const current=expenses.filter(row=>row.occurred_on?.startsWith(month)),previousRows=expenses.filter(row=>row.occurred_on?.startsWith(previous)),currentTotal=current.reduce((sum,row)=>sum+Number(row.amount),0),previousTotal=previousRows.reduce((sum,row)=>sum+Number(row.amount),0),groups=new Map();
