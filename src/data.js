@@ -8,7 +8,8 @@ export function calculateSummary(transactions,invoices,month=monthKey()){
   return{income,expenses,balance,unpaid,review,savings:income-expenses};
 }
 export function bankBalanceSummary(accounts=[]){
-  const connected=accounts.filter(account=>account.external_provider==='enablebanking'),eur=connected.filter(account=>(account.currency||'EUR').toUpperCase()==='EUR'),total=eur.reduce((sum,account)=>sum+Number(account.current_balance||0),0);
+  const unique=new Map();for(const[index,account]of accounts.filter(account=>account.external_provider==='enablebanking').entries()){const key=account.bank_connection_id&&account.iban_last4?`${account.bank_connection_id}:${account.iban_last4}`:account.id||`row:${index}`,previous=unique.get(key);if(!previous||String(account.updated_at||'')>String(previous.updated_at||''))unique.set(key,account)}
+  const connected=[...unique.values()],eur=connected.filter(account=>(account.currency||'EUR').toUpperCase()==='EUR'),total=eur.reduce((sum,account)=>sum+Number(account.current_balance||0),0);
   return{accounts:connected,total,currency:'EUR'};
 }
 export function bankTransactionsForAccount(transactions=[],accountId='all'){

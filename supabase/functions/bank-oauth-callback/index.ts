@@ -12,7 +12,9 @@ Deno.serve(async req => {
     for (const item of session.accounts) {
       const id = accountId(item); if (!id) continue
       const [details, balances] = await Promise.all([eb(`/accounts/${encodeURIComponent(id)}/details`), eb(`/accounts/${encodeURIComponent(id)}/balances`)]), account = details.account ?? details ?? item, balance = accountBalance(balances), iban = String(account.iban ?? account.account_id?.iban ?? '')
-      const saved = await admin.from('accounts').upsert({ user_id: connection.data.user_id, bank_connection_id: connection.data.id, name: account.name || account.product || account.display_name || connection.data.institution_name, institution: connection.data.institution_name, iban_last4: iban ? iban.slice(-4) : null, currency: balance.currency, current_balance: balance.amount ?? 0, external_provider: 'enablebanking', external_account_id: id, updated_at: new Date().toISOString() }, { onConflict: 'user_id,external_provider,external_account_id' })
+      const last4 = iban ? iban.slice(-4) : null, values = { user_id: connection.data.user_id, bank_connection_id: connection.data.id, name: account.name || account.product || account.display_name || connection.data.institution_name, institution: connection.data.institution_name, iban_last4: last4, currency: balance.currency, current_balance: balance.amount ?? 0, external_provider: 'enablebanking', external_account_id: id, updated_at: new Date().toISOString() }
+      const existing = last4 ? await admin.from('accounts').select('id').eq('user_id', connection.data.user_id).eq('bank_connection_id', connection.data.id).eq('external_provider', 'enablebanking').eq('iban_last4', last4).limit(1).maybeSingle() : { data: null }
+      const saved = existing.data ? await admin.from('accounts').update(values).eq('id', existing.data.id).eq('user_id', connection.data.user_id) : await admin.from('accounts').upsert(values, { onConflict: 'user_id,external_provider,external_account_id' })
       if (saved.error) throw saved.error
     }
     const validUntil = String(session.access?.valid_until ?? connection.data.valid_until ?? '').slice(0, 10) || null
