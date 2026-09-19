@@ -57,3 +57,9 @@ export function ownTransferPairs(rows=[]){
   }
   return pairs
 }
+
+export function merchantRuleKey(description=''){
+  const ignored=new Set(['pagamento','carta','pos','operazione','acquisto','bonifico','sepa','addebito','sdd','diretto','commissione','riferimento','rif','data','del','con','presso','euro']);
+  const words=cleanBankText(description).replace(/\b\d+\b/g,' ').split(' ').filter(word=>word.length>2&&!ignored.has(word));
+  return words.slice(0,4).join(' ')||null
+}
