@@ -76,3 +76,13 @@ export function transactionRows(data: any) {
   if (Array.isArray(data?.booked)) return data.booked
   return []
 }
+
+export function transactionContinuation(data: any) {
+  const value = data?.continuation_key ?? data?.continuationKey ?? data?.transactions?.continuation_key ?? data?.transactions?.continuationKey
+  return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
+export function isBookedTransaction(row: any) {
+  const status = String(row?.status ?? row?.transaction_status ?? row?.transactionStatus ?? '').trim().toUpperCase()
+  return !status || ['BOOK', 'BOOKED', 'COMPLETED', 'ACSC'].includes(status)
+}

@@ -1,6 +1,6 @@
 import { adminClient, sha256 } from './gmail.ts'
 import { bankCategoryName, bankMatchConfidence, cleanBankText, merchantRuleKey, ownTransferKey, ownTransferPairs, possibleOwnTransfer } from './bank.js'
-import { accountBalance, bankDescription, eb, transactionAmount, transactionRows } from './enablebanking.ts'
+import { accountBalance, bankDescription, eb, isBookedTransaction, transactionAmount, transactionContinuation, transactionRows } from './enablebanking.ts'
 
 export async function syncBanksForUser(userId: string) {
   const admin = adminClient(), accounts = (await admin.from('accounts').select('*').eq('user_id', userId).eq('external_provider', 'enablebanking')).data ?? [], invoices = (await admin.from('invoices').select('id,supplier,amount,currency,iuv,due_on,issued_on,status,category_id').eq('user_id', userId).in('status', ['to_pay', 'paid'])).data ?? [], categories = (await admin.from('categories').select('id,name,kind').eq('user_id', userId)).data ?? [], rules = (await admin.from('learning_rules').select('rule_type,pattern,outcome').eq('user_id', userId).in('rule_type', ['own_transfer','merchant_category']).gte('confidence', .9)).data ?? []
@@ -11,12 +11,12 @@ export async function syncBanksForUser(userId: string) {
   const matchedInvoices: Array<{ supplier: string; amount: number }> = []
   for (const account of accounts) {
     const id = encodeURIComponent(account.external_account_id), dateTo = new Date().toISOString().slice(0, 10), dateFrom = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10)
-    const [firstPage, balances] = await Promise.all([eb(`/accounts/${id}/transactions?date_from=${dateFrom}&date_to=${dateTo}&transaction_status=BOOK`), eb(`/accounts/${id}/balances`)]), balance = accountBalance(balances)
+    const [firstPage, balances] = await Promise.all([eb(`/accounts/${id}/transactions?date_from=${dateFrom}&date_to=${dateTo}`), eb(`/accounts/${id}/balances`)]), balance = accountBalance(balances)
     const accountUpdate: any = { currency: balance.currency, updated_at: new Date().toISOString() }; if (balance.amount != null) accountUpdate.current_balance = balance.amount
     await admin.from('accounts').update(accountUpdate).eq('id', account.id).eq('user_id', userId)
-    const pages = [firstPage]; let continuation = firstPage.continuation_key
-    for (let page = 1; continuation && page < 20; page++) { const next = await eb(`/accounts/${id}/transactions?continuation_key=${encodeURIComponent(continuation)}`); pages.push(next); continuation = next.continuation_key }
-    for (const source of pages.flatMap(transactionRows)) {
+    const pages = [firstPage], seenContinuations = new Set<string>(); let continuation = transactionContinuation(firstPage)
+    for (let page = 1; continuation && page < 100 && !seenContinuations.has(continuation); page++) { seenContinuations.add(continuation); const next = await eb(`/accounts/${id}/transactions?continuation_key=${encodeURIComponent(continuation)}`); pages.push(next); continuation = transactionContinuation(next) }
+    for (const source of pages.flatMap(transactionRows).filter(isBookedTransaction)) {
       const parsed = transactionAmount(source), signed = parsed.amount, amount = Math.abs(signed), indicator = String(source.credit_debit_indicator ?? source.creditDebitIndicator ?? '').toUpperCase(), kind = indicator === 'DBIT' || indicator === 'DEBIT' || signed < 0 ? 'expense' : 'income', occurredOn = source.booking_date || source.bookingDate || source.value_date || source.valueDate, description = bankDescription(source)
       if (!occurredOn || !Number.isFinite(amount) || amount <= 0) continue
       const fingerprint = `bank:${await sha256(`${occurredOn}|${kind}|${amount.toFixed(2)}|${cleanBankText(description)}`)}`
