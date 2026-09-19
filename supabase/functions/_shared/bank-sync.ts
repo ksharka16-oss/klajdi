@@ -10,7 +10,8 @@ async function transactionPages(accountId: string, query: string) {
 }
 
 export async function syncBanksForUser(userId: string) {
-  const admin = adminClient(), accounts = (await admin.from('accounts').select('*').eq('user_id', userId).eq('external_provider', 'enablebanking')).data ?? [], invoices = (await admin.from('invoices').select('id,supplier,amount,currency,iuv,due_on,issued_on,status,category_id').eq('user_id', userId).in('status', ['to_pay', 'paid'])).data ?? [], categories = (await admin.from('categories').select('id,name,kind').eq('user_id', userId)).data ?? [], rules = (await admin.from('learning_rules').select('rule_type,pattern,outcome').eq('user_id', userId).in('rule_type', ['own_transfer','merchant_category']).gte('confidence', .9)).data ?? []
+  const admin = adminClient(), linkedConnections = (await admin.from('bank_connections').select('id').eq('user_id', userId).eq('provider', 'enablebanking').eq('status', 'linked')).data ?? [], linkedIds = linkedConnections.map(connection => connection.id)
+  const accounts = linkedIds.length ? (await admin.from('accounts').select('*').eq('user_id', userId).eq('external_provider', 'enablebanking').in('bank_connection_id', linkedIds)).data ?? [] : [], invoices = (await admin.from('invoices').select('id,supplier,amount,currency,iuv,due_on,issued_on,status,category_id').eq('user_id', userId).in('status', ['to_pay', 'paid'])).data ?? [], categories = (await admin.from('categories').select('id,name,kind').eq('user_id', userId)).data ?? [], rules = (await admin.from('learning_rules').select('rule_type,pattern,outcome').eq('user_id', userId).in('rule_type', ['own_transfer','merchant_category']).gte('confidence', .9)).data ?? []
   const knownTransferKeys = rules.filter(rule => rule.outcome?.is_transfer === true).map(rule => rule.pattern?.key).filter(Boolean)
   const categoryId = (row: any) => { const learned = rules.find(rule => rule.rule_type === 'merchant_category' && rule.pattern?.key === merchantRuleKey(row.description))?.outcome?.category_id; if (learned && categories.some(category => category.id === learned && (category.kind === row.kind || category.kind === 'both'))) return learned; const name = bankCategoryName(row); return categories.find(category => category.name === name && (category.kind === row.kind || category.kind === 'both'))?.id ?? null }
   const invoiceIds = invoices.map(invoice => invoice.id), links = invoiceIds.length ? (await admin.from('reconciliations').select('invoice_id,status').eq('user_id', userId).in('invoice_id', invoiceIds)).data ?? [] : []
@@ -44,7 +45,7 @@ export async function syncBanksForUser(userId: string) {
     } catch (error) {
       const expired = isExpiredBankSession(error), message = expired ? 'Autorizzazione bancaria scaduta.' : String(error?.message ?? 'Aggiornamento bancario non riuscito.')
       accountResults.push({ ...label, received: 0, booked: 0, pages: 0, fallback: false, error: message })
-      if (expired && connectionId) { failedConnections.add(connectionId); await admin.from('bank_connections').update({ status: 'expired', updated_at: new Date().toISOString() }).eq('id', connectionId).eq('user_id', userId) }
+      if (expired && connectionId) { failedConnections.add(connectionId); await admin.from('bank_connections').update({ status: 'expired', updated_at: new Date().toISOString() }).eq('id', connectionId).eq('user_id', userId).eq('status', 'linked') }
     }
   }
   const cutoff = new Date(Date.now() - 60 * 86400000).toISOString().slice(0, 10), { data: recent } = await admin.from('transactions').select('id,account_id,kind,amount,occurred_on,description,reconciled,is_transfer,transfer_status').eq('user_id', userId).eq('source', 'bank').gte('occurred_on', cutoff)

@@ -5,7 +5,7 @@ const redirect = (ok: boolean, detail = '') => Response.redirect(`${appOrigin}/?
 Deno.serve(async req => {
   try {
     const params = new URL(req.url).searchParams, state = params.get('state') ?? '', code = params.get('code') ?? ''; if (!state || !code) return redirect(false, 'Collegamento bancario non valido.')
-    const admin = adminClient(), stateHash = await sha256(state), connection = await admin.from('bank_connections').select('*').eq('state_hash', stateHash).eq('status', 'pending').maybeSingle()
+    const admin = adminClient(), stateHash = await sha256(state), connection = await admin.from('bank_connections').select('*').eq('state_hash', stateHash).in('status', ['pending', 'expired']).maybeSingle()
     if (!connection.data || !connection.data.state_expires_at || Date.parse(connection.data.state_expires_at) < Date.now()) return redirect(false, 'Autorizzazione scaduta: riprova.')
     const session = await eb('/sessions', { method: 'POST', body: JSON.stringify({ code }) })
     if (!session.session_id || !Array.isArray(session.accounts) || !session.accounts.length) return redirect(false, 'La banca non ha restituito alcun conto.')
