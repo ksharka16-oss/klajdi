@@ -2,6 +2,7 @@ import webpush from 'npm:web-push@3.6.7'
 import { adminClient, json } from '../_shared/gmail.ts'
 import { syncRecentForUser } from '../_shared/gmail-sync.ts'
 import { invoiceDeadlineReminder } from '../_shared/classification.js'
+import { bankConsentReminder } from '../_shared/bank.js'
 
 function romeNow() { const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Rome', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23' }).formatToParts().map(part => [part.type, part.value])); return { date: `${parts.year}-${parts.month}-${parts.day}`, hour: Number(parts.hour) } }
 async function sendPush(userId: string, title: string, body: string, url = 'https://klajdi.vercel.app/?page=Email') {
@@ -26,12 +27,26 @@ async function sendInvoiceReminders(userId: string, runDate: string) {
   }
   return sent
 }
+async function sendBankExpiryReminders(userId: string, runDate: string) {
+  const admin = adminClient(), { data: connections } = await admin.from('bank_connections').select('institution_name,status,valid_until').eq('user_id', userId).eq('provider', 'enablebanking').eq('status', 'linked').not('valid_until', 'is', null)
+  let sent = 0
+  for (const connection of connections ?? []) {
+    const reminder = bankConsentReminder(connection, runDate)
+    if (!reminder) continue
+    const { data: existing } = await admin.from('notifications').select('id').eq('user_id', userId).eq('kind', 'bank_consent_expiry').eq('title', reminder.title).eq('body', reminder.body).maybeSingle()
+    if (existing) continue
+    const inserted = await admin.from('notifications').insert({ user_id: userId, kind: 'bank_consent_expiry', title: reminder.title, body: reminder.body })
+    if (inserted.error) continue
+    await sendPush(userId, reminder.title, reminder.body, 'https://klajdi.vercel.app/?page=Banca'); sent += 1
+  }
+  return sent
+}
 async function runScheduled(runDate: string) {
-  const admin = adminClient(), { data: accounts } = await admin.from('email_accounts').select('user_id').eq('provider', 'gmail'), userIds = [...new Set((accounts ?? []).map(account => account.user_id))]
+  const admin = adminClient(), [{ data: accounts }, { data: bankConnections }] = await Promise.all([admin.from('email_accounts').select('user_id').eq('provider', 'gmail'), admin.from('bank_connections').select('user_id').eq('provider', 'enablebanking').eq('status', 'linked')]), emailUserIds = new Set((accounts ?? []).map(account => account.user_id)), userIds = [...new Set([...(accounts ?? []).map(account => account.user_id), ...(bankConnections ?? []).map(connection => connection.user_id)])]
   let imported = 0, newUseful = 0
-  let reminders = 0
-  for (const userId of userIds) { const result = await syncRecentForUser(userId, { restart: true, maxPages: 50 }); imported += result.imported; newUseful += result.newUseful; if (result.newUseful > 0) { const body=`${result.newUseful} nuove email utili trovate questo mese.`; await admin.from('notifications').insert({ user_id: userId, title: 'Nuove email finanziarie', body }); await sendPush(userId, 'SOLDI', body) } reminders += await sendInvoiceReminders(userId, runDate) }
-  await admin.from('scheduled_sync_runs').update({ completed_at: new Date().toISOString(), result: { imported, new_useful: newUseful, reminders, users: userIds.length } }).eq('run_on', runDate)
+  let reminders = 0, bankReminders = 0
+  for (const userId of userIds) { if (emailUserIds.has(userId)) { const result = await syncRecentForUser(userId, { restart: true, maxPages: 50 }); imported += result.imported; newUseful += result.newUseful; if (result.newUseful > 0) { const body=`${result.newUseful} nuove email utili trovate questo mese.`; await admin.from('notifications').insert({ user_id: userId, title: 'Nuove email finanziarie', body }); await sendPush(userId, 'SOLDI', body) } } reminders += await sendInvoiceReminders(userId, runDate); bankReminders += await sendBankExpiryReminders(userId, runDate) }
+  await admin.from('scheduled_sync_runs').update({ completed_at: new Date().toISOString(), result: { imported, new_useful: newUseful, reminders, bank_reminders: bankReminders, users: userIds.length } }).eq('run_on', runDate)
 }
 Deno.serve(async req => {
   if (req.method !== 'POST') return json({ error: 'Metodo non consentito.' }, 405)

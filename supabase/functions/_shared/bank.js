@@ -7,3 +7,15 @@ export function bankMatchConfidence(invoice,row){
   if((iuv.length>=8&&digits.includes(iuv))||(tokens.length>0&&tokens.filter(word=>description.includes(word)).length>=Math.min(2,tokens.length)))return 1;
   return .8
 }
+
+const utcDay=value=>Date.parse(`${String(value??'').slice(0,10)}T00:00:00Z`);
+export function bankConsentReminder(connection={},today=''){
+  if(connection.status!=='linked'||!connection.valid_until)return null;
+  const remaining=Math.round((utcDay(connection.valid_until)-utcDay(today))/86400000);
+  if(!Number.isFinite(remaining))return null;
+  const bank=String(connection.institution_name||'La banca');
+  if(remaining<0)return{title:'Collegamento bancario scaduto',body:`${bank} non si aggiorna più. Rinnova l’autorizzazione in SOLDI senza perdere i movimenti già importati.`};
+  if(![14,7,3,1,0].includes(remaining))return null;
+  if(remaining===0)return{title:'Collegamento bancario in scadenza oggi',body:`Rinnova oggi l’autorizzazione di ${bank} per continuare gli aggiornamenti automatici.`};
+  return{title:'Rinnova il collegamento bancario',body:`L’autorizzazione di ${bank} scade tra ${remaining} ${remaining===1?'giorno':'giorni'}. Rinnovala in SOLDI.`};
+}
