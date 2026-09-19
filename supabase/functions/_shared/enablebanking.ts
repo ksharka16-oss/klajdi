@@ -86,3 +86,12 @@ export function isBookedTransaction(row: any) {
   const status = String(row?.status ?? row?.transaction_status ?? row?.transactionStatus ?? '').trim().toUpperCase()
   return !status || ['BOOK', 'BOOKED', 'COMPLETED', 'ACSC'].includes(status)
 }
+
+export function transactionDate(row: any) {
+  return String(row?.booking_date ?? row?.bookingDate ?? row?.value_date ?? row?.valueDate ?? row?.transaction_date ?? row?.transactionDate ?? '').slice(0, 10)
+}
+
+export function isTransactionInRange(row: any, dateFrom: string, dateTo: string) {
+  const value = transactionDate(row)
+  return Boolean(value && value >= dateFrom && value <= dateTo)
+}
