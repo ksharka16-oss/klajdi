@@ -7,13 +7,17 @@ Deno.serve(async req => {
   if (req.method !== 'POST') return json({ error: 'Metodo non consentito.' }, 405, origin)
   const user = await currentUser(req); if (!user) return json({ error: 'Sessione non valida.' }, 401, origin)
   try {
-    const body = await req.json().catch(() => ({})), institutionId = String(body.institution_id ?? ''), reconnect = body.reconnect === true
+    const body = await req.json().catch(() => ({})), institutionId = String(body.institution_id ?? ''), reconnect = body.reconnect === true, requestedConnectionId = String(body.connection_id ?? '')
     const result = await eb('/aspsps?country=IT&psu_type=personal&service=AIS'), institutions = Array.isArray(result?.aspsps) ? result.aspsps : Array.isArray(result) ? result : [], institution = institutions.find((item: any) => institutionKey(item) === institutionId && /unicredit|ing/i.test(item.name))
     if (!institution) return json({ error: 'Banca non disponibile.' }, 400, origin)
-    const bankKey = institutionKey(institution)
-    const admin = adminClient(), existing = await admin.from('bank_connections').select('id,status,valid_until').eq('user_id', user.id).eq('institution_id', bankKey).in('status', ['pending', 'linked']).maybeSingle()
-    if (existing.data?.status === 'linked' && !reconnect) return json({ error: 'Questa banca è già collegata.' }, 409, origin)
-    const connectionId = existing.data?.id ?? crypto.randomUUID(), state = randomState(), stateHash = await sha256(state), expires = new Date(Date.now() + 15 * 60000).toISOString()
+    const bankKey = institutionKey(institution), admin = adminClient()
+    let connectionId = crypto.randomUUID()
+    if (reconnect) {
+      const existing = await admin.from('bank_connections').select('id').eq('id', requestedConnectionId).eq('user_id', user.id).eq('institution_id', bankKey).eq('provider', 'enablebanking').maybeSingle()
+      if (!existing.data) return json({ error: 'Collegamento bancario da rinnovare non trovato.' }, 404, origin)
+      connectionId = existing.data.id
+    }
+    const state = randomState(), stateHash = await sha256(state), expires = new Date(Date.now() + 15 * 60000).toISOString()
     const callback = `${Deno.env.get('SUPABASE_URL')}/functions/v1/bank-oauth-callback`
     const validUntil = new Date(Date.now() + 180 * 86400000).toISOString()
     const authorization = await eb('/auth', { method: 'POST', body: JSON.stringify({ access: { valid_until: validUntil }, aspsp: { name: institution.name, country: String(institution.country ?? 'IT').toUpperCase() }, state, redirect_url: callback, psu_type: 'personal', language: 'it', psu_id: user.id }) })
