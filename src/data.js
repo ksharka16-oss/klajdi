@@ -8,7 +8,7 @@ export function calculateSummary(transactions,invoices,month=monthKey()){
   return{income,expenses,balance,unpaid,review,savings:income-expenses};
 }
 export function bankBalanceSummary(accounts=[]){
-  const unique=new Map();for(const[index,account]of accounts.filter(account=>account.external_provider==='enablebanking').entries()){const key=account.bank_connection_id&&account.iban_last4?`${account.bank_connection_id}:${account.iban_last4}`:account.id||`row:${index}`,previous=unique.get(key);if(!previous||String(account.updated_at||'')>String(previous.updated_at||''))unique.set(key,account)}
+  const unique=new Map();for(const[index,account]of accounts.filter(account=>account.external_provider==='enablebanking').entries()){const institution=String(account.institution||account.name||'').trim().toLocaleLowerCase('it-IT'),key=institution&&account.iban_last4?`${institution}:${account.iban_last4}`:account.id||`row:${index}`,previous=unique.get(key);if(!previous||String(account.updated_at||'')>String(previous.updated_at||''))unique.set(key,account)}
   const connected=[...unique.values()],eur=connected.filter(account=>(account.currency||'EUR').toUpperCase()==='EUR'),total=eur.reduce((sum,account)=>sum+Number(account.current_balance||0),0);
   return{accounts:connected,total,currency:'EUR'};
 }

@@ -13,7 +13,10 @@ Deno.serve(async req => {
       const id = accountId(item); if (!id) continue
       const [details, balances] = await Promise.all([eb(`/accounts/${encodeURIComponent(id)}/details`), eb(`/accounts/${encodeURIComponent(id)}/balances`)]), account = details.account ?? details ?? item, balance = accountBalance(balances), iban = String(account.iban ?? account.account_id?.iban ?? '')
       const last4 = iban ? iban.slice(-4) : null, values = { user_id: connection.data.user_id, bank_connection_id: connection.data.id, name: account.name || account.product || account.display_name || connection.data.institution_name, institution: connection.data.institution_name, iban_last4: last4, currency: balance.currency, current_balance: balance.amount ?? 0, external_provider: 'enablebanking', external_account_id: id, updated_at: new Date().toISOString() }
-      const existing = last4 ? await admin.from('accounts').select('id').eq('user_id', connection.data.user_id).eq('bank_connection_id', connection.data.id).eq('external_provider', 'enablebanking').eq('iban_last4', last4).limit(1).maybeSingle() : { data: null }
+      // Enable Banking can issue a new account UID when the same IBAN is
+      // re-authorized. Match the user's bank + IBAN suffix across sessions so
+      // the existing account (and its transactions) is retained.
+      const existing = last4 ? await admin.from('accounts').select('id').eq('user_id', connection.data.user_id).eq('external_provider', 'enablebanking').eq('institution', connection.data.institution_name).eq('iban_last4', last4).order('updated_at', { ascending: false }).limit(1).maybeSingle() : { data: null }
       const saved = existing.data ? await admin.from('accounts').update(values).eq('id', existing.data.id).eq('user_id', connection.data.user_id) : await admin.from('accounts').upsert(values, { onConflict: 'user_id,external_provider,external_account_id' })
       if (saved.error) throw saved.error
     }
