@@ -1,5 +1,6 @@
 import { adminClient, clientId, clientSecret, decryptToken, encryptToken } from './gmail.ts'
 import { autoInvoiceCandidate, classifyEmail, extractFinancialFields, financialStatus, gmailRollingRange, paidExpenseCandidate, paymentInvoiceMatch, supportedFinancialAttachment } from './classification.js'
+import { isDateInWindow, transactionWindow } from './enablebanking.ts'
 
 function header(message: any, name: string) { return message.payload?.headers?.find((item: any) => item.name?.toLowerCase() === name.toLowerCase())?.value ?? '' }
 function attachmentNames(part: any): string[] { return (part?.filename ? [part.filename] : []).concat((part?.parts ?? []).flatMap(attachmentNames)) }
@@ -102,6 +103,9 @@ async function createExpenseFromPaidEmail(admin: any, userId: string, emailId: s
   if (existing) return existing.id
   const transactionId = crypto.randomUUID()
   const occurredOn = receivedAt ? new Date(receivedAt).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10)
+  const profile = (await admin.from('profiles').select('transactions_start_on,timezone').eq('id', userId).maybeSingle()).data
+  const allowed = transactionWindow(profile?.transactions_start_on, profile?.timezone || 'Europe/Rome')
+  if (!isDateInWindow(occurredOn, allowed.dateFrom, allowed.dateTo)) return null
   const inserted = await admin.from('transactions').insert({ id: transactionId, user_id: userId, kind: 'expense', amount: Number(extracted.amount), currency: 'EUR', description: `Pagamento ${extracted.supplier}`, occurred_on: occurredOn, source: 'email', external_id: emailId, fingerprint, reconciled: false }).select('id').single()
   if (inserted.error) {
     if (inserted.error.code === '23505') return null

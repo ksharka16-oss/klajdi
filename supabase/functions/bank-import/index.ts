@@ -1,5 +1,6 @@
 import { corsHeaders, currentUser, json, adminClient, sha256 } from '../_shared/gmail.ts'
 import { bankCategoryName, bankMatchConfidence, cleanBankText } from '../_shared/bank.js'
+import { isDateInWindow, transactionWindow } from '../_shared/enablebanking.ts'
 
 Deno.serve(async req => {
   const origin = req.headers.get('Origin')
@@ -10,15 +11,18 @@ Deno.serve(async req => {
   const body = await req.json().catch(() => ({})), rows = Array.isArray(body.rows) ? body.rows.slice(0, 500) : []
   if (!rows.length) return json({ error: 'Nessun movimento da importare.' }, 400, origin)
   const admin = adminClient()
+  const profile = (await admin.from('profiles').select('transactions_start_on,timezone').eq('id', user.id).maybeSingle()).data
+  const allowed = transactionWindow(profile?.transactions_start_on, profile?.timezone || 'Europe/Rome')
   const categories = (await admin.from('categories').select('id,name,kind').eq('user_id', user.id)).data ?? []
   const { data: invoices, error: invoiceError } = await admin.from('invoices').select('id,supplier,amount,currency,iuv,due_on,issued_on,status,category_id').eq('user_id', user.id).in('status', ['to_pay', 'paid'])
   if (invoiceError) return json({ error: 'Impossibile leggere le fatture.' }, 500, origin)
   const invoiceIds = (invoices ?? []).map(invoice => invoice.id)
   const reconciliations = invoiceIds.length ? (await admin.from('reconciliations').select('invoice_id,transaction_id,status').eq('user_id', user.id).in('invoice_id', invoiceIds)).data ?? [] : []
-  let imported = 0, duplicates = 0, matched = 0, review = 0
+  let imported = 0, duplicates = 0, matched = 0, review = 0, outsideWindow = 0
   for (const item of rows) {
     const occurredOn = String(item.occurred_on ?? ''), description = String(item.description ?? '').trim().slice(0, 300), amount = Number(item.amount), kind = item.kind === 'income' ? 'income' : 'expense'
     if (!/^\d{4}-\d{2}-\d{2}$/.test(occurredOn) || !description || !Number.isFinite(amount) || amount <= 0) continue
+    if (!isDateInWindow(occurredOn, allowed.dateFrom, allowed.dateTo)) { outsideWindow++; continue }
     const row = { occurred_on: occurredOn, description, amount, kind }
     const fingerprint = `bank:${await sha256(`${occurredOn}|${kind}|${amount.toFixed(2)}|${cleanBankText(description)}`)}`
     const existing = await admin.from('transactions').select('id').eq('user_id', user.id).eq('fingerprint', fingerprint).maybeSingle()
@@ -39,6 +43,6 @@ Deno.serve(async req => {
       if (!linked.error && confidence === 1) { await admin.from('invoices').update({ status: 'paid', updated_at: new Date().toISOString() }).eq('id', candidate.id).eq('user_id', user.id); matched++ } else if (!linked.error) review++
     }
   }
-  await admin.from('audit_log').insert({ user_id: user.id, action: 'bank_csv_imported', entity_type: 'transactions', metadata: { imported, duplicates, matched, review } })
-  return json({ imported, duplicates, matched, review }, 200, origin)
+  await admin.from('audit_log').insert({ user_id: user.id, action: 'bank_csv_imported', entity_type: 'transactions', metadata: { imported, duplicates, matched, review, outside_window: outsideWindow } })
+  return json({ imported, duplicates, matched, review, outsideWindow }, 200, origin)
 })

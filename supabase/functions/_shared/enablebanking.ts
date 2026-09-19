@@ -96,6 +96,29 @@ export function isTransactionInRange(row: any, dateFrom: string, dateTo: string)
   return Boolean(value && value >= dateFrom && value <= dateTo)
 }
 
+export function dateInTimeZone(timeZone = 'Europe/Rome', now = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now)
+  const value = Object.fromEntries(parts.map(part => [part.type, part.value]))
+  return `${value.year}-${value.month}-${value.day}`
+}
+
+export function transactionWindow(startOn: string | null | undefined, timeZone = 'Europe/Rome', now = new Date()) {
+  const dateTo = dateInTimeZone(timeZone, now)
+  return { dateFrom: startOn && /^\d{4}-\d{2}-\d{2}$/.test(startOn) ? startOn : '0001-01-01', dateTo }
+}
+
+export function bankSyncRange(startOn: string | null | undefined, timeZone = 'Europe/Rome', now = new Date()) {
+  const dateTo = dateInTimeZone(timeZone, now)
+  const rolling = new Date(`${dateTo}T00:00:00Z`)
+  rolling.setUTCDate(rolling.getUTCDate() - 30)
+  const rollingFrom = rolling.toISOString().slice(0, 10)
+  return { dateFrom: startOn && startOn > rollingFrom ? startOn : rollingFrom, dateTo }
+}
+
+export function isDateInWindow(value: string, dateFrom: string, dateTo: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) && value >= dateFrom && value <= dateTo
+}
+
 export function isExpiredBankSession(error: any) {
   const message = String(error?.message ?? error ?? '')
   return /session\s+(?:is\s+)?expired|expired\s+session/i.test(message)

@@ -1,6 +1,6 @@
 import { adminClient, sha256 } from './gmail.ts'
 import { bankCategoryName, bankMatchConfidence, cleanBankText, merchantRuleKey, ownTransferKey, ownTransferPairs, possibleOwnTransfer } from './bank.js'
-import { accountBalance, bankDescription, eb, isBookedTransaction, isExpiredBankSession, isTransactionInRange, transactionAmount, transactionContinuation, transactionDate, transactionRows } from './enablebanking.ts'
+import { accountBalance, bankDescription, bankSyncRange, eb, isBookedTransaction, isExpiredBankSession, isTransactionInRange, transactionAmount, transactionContinuation, transactionDate, transactionRows } from './enablebanking.ts'
 
 async function transactionPages(accountId: string, query: string) {
   const firstPage = await eb(`/accounts/${accountId}/transactions?${query}`), pages = [firstPage], seenContinuations = new Set<string>()
@@ -11,6 +11,8 @@ async function transactionPages(accountId: string, query: string) {
 
 export async function syncBanksForUser(userId: string) {
   const admin = adminClient(), linkedConnections = (await admin.from('bank_connections').select('id').eq('user_id', userId).eq('provider', 'enablebanking').eq('status', 'linked')).data ?? [], linkedIds = linkedConnections.map(connection => connection.id)
+  const profile = (await admin.from('profiles').select('transactions_start_on,timezone').eq('id', userId).maybeSingle()).data
+  const syncRange = bankSyncRange(profile?.transactions_start_on, profile?.timezone || 'Europe/Rome')
   const accounts = linkedIds.length ? (await admin.from('accounts').select('*').eq('user_id', userId).eq('external_provider', 'enablebanking').in('bank_connection_id', linkedIds)).data ?? [] : [], invoices = (await admin.from('invoices').select('id,supplier,amount,currency,iuv,due_on,issued_on,status,category_id').eq('user_id', userId).in('status', ['to_pay', 'paid'])).data ?? [], categories = (await admin.from('categories').select('id,name,kind').eq('user_id', userId)).data ?? [], rules = (await admin.from('learning_rules').select('rule_type,pattern,outcome').eq('user_id', userId).in('rule_type', ['own_transfer','merchant_category']).gte('confidence', .9)).data ?? []
   const knownTransferKeys = rules.filter(rule => rule.outcome?.is_transfer === true).map(rule => rule.pattern?.key).filter(Boolean)
   const categoryId = (row: any) => { const learned = rules.find(rule => rule.rule_type === 'merchant_category' && rule.pattern?.key === merchantRuleKey(row.description))?.outcome?.category_id; if (learned && categories.some(category => category.id === learned && (category.kind === row.kind || category.kind === 'both'))) return learned; const name = bankCategoryName(row); return categories.find(category => category.name === name && (category.kind === row.kind || category.kind === 'both'))?.id ?? null }
@@ -22,7 +24,7 @@ export async function syncBanksForUser(userId: string) {
     const connectionId = String(account.bank_connection_id ?? ''), label = { institution: String(account.institution ?? 'Banca'), last4: String(account.iban_last4 ?? '') }
     if (connectionId && failedConnections.has(connectionId)) { accountResults.push({ ...label, received: 0, booked: 0, pages: 0, fallback: false, error: 'Autorizzazione bancaria scaduta.' }); continue }
     try {
-    const id = encodeURIComponent(account.external_account_id), dateTo = new Date().toISOString().slice(0, 10), dateFrom = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10)
+    const id = encodeURIComponent(account.external_account_id), { dateFrom, dateTo } = syncRange
     const [initialPages, balances] = await Promise.all([transactionPages(id, `date_from=${dateFrom}&date_to=${dateTo}`), eb(`/accounts/${id}/balances`)]), balance = accountBalance(balances)
     const accountUpdate: any = { currency: balance.currency, updated_at: new Date().toISOString() }; if (balance.amount != null) accountUpdate.current_balance = balance.amount
     await admin.from('accounts').update(accountUpdate).eq('id', account.id).eq('user_id', userId)
