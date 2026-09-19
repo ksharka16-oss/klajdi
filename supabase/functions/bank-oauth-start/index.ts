@@ -8,7 +8,7 @@ Deno.serve(async req => {
   const user = await currentUser(req); if (!user) return json({ error: 'Sessione non valida.' }, 401, origin)
   try {
     const body = await req.json().catch(() => ({})), institutionId = String(body.institution_id ?? ''), reconnect = body.reconnect === true, requestedConnectionId = String(body.connection_id ?? '')
-    const result = await eb('/aspsps?country=IT&psu_type=personal&service=AIS'), institutions = Array.isArray(result?.aspsps) ? result.aspsps : Array.isArray(result) ? result : [], institution = institutions.find((item: any) => institutionKey(item) === institutionId && /unicredit|ing/i.test(item.name))
+    const result = await eb('/aspsps?country=IT&psu_type=personal&service=AIS'), institutions = Array.isArray(result?.aspsps) ? result.aspsps : Array.isArray(result) ? result : [], institution = institutions.find((item: any) => institutionKey(item) === institutionId && /unicredit|buddy bank|^ing(?:\s|$|\()/i.test(item.name))
     if (!institution) return json({ error: 'Banca non disponibile.' }, 400, origin)
     const bankKey = institutionKey(institution), admin = adminClient()
     let connectionId = crypto.randomUUID()
