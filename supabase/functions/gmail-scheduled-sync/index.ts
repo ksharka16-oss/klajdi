@@ -3,6 +3,7 @@ import { adminClient, json } from '../_shared/gmail.ts'
 import { syncRecentForUser } from '../_shared/gmail-sync.ts'
 import { invoiceDeadlineReminder } from '../_shared/classification.js'
 import { bankConsentReminder } from '../_shared/bank.js'
+import { syncBanksForUser } from '../_shared/bank-sync.ts'
 
 function romeNow() { const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Rome', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23' }).formatToParts().map(part => [part.type, part.value])); return { date: `${parts.year}-${parts.month}-${parts.day}`, hour: Number(parts.hour) } }
 async function sendPush(userId: string, title: string, body: string, url = 'https://klajdi.vercel.app/?page=Email') {
@@ -44,9 +45,9 @@ async function sendBankExpiryReminders(userId: string, runDate: string) {
 async function runScheduled(runDate: string) {
   const admin = adminClient(), [{ data: accounts }, { data: bankConnections }] = await Promise.all([admin.from('email_accounts').select('user_id').eq('provider', 'gmail'), admin.from('bank_connections').select('user_id').eq('provider', 'enablebanking').eq('status', 'linked')]), emailUserIds = new Set((accounts ?? []).map(account => account.user_id)), userIds = [...new Set([...(accounts ?? []).map(account => account.user_id), ...(bankConnections ?? []).map(connection => connection.user_id)])]
   let imported = 0, newUseful = 0
-  let reminders = 0, bankReminders = 0
-  for (const userId of userIds) { if (emailUserIds.has(userId)) { const result = await syncRecentForUser(userId, { restart: true, maxPages: 50 }); imported += result.imported; newUseful += result.newUseful; if (result.newUseful > 0) { const body=`${result.newUseful} nuove email utili trovate questo mese.`; await admin.from('notifications').insert({ user_id: userId, title: 'Nuove email finanziarie', body }); await sendPush(userId, 'SOLDI', body) } } reminders += await sendInvoiceReminders(userId, runDate); bankReminders += await sendBankExpiryReminders(userId, runDate) }
-  await admin.from('scheduled_sync_runs').update({ completed_at: new Date().toISOString(), result: { imported, new_useful: newUseful, reminders, bank_reminders: bankReminders, users: userIds.length } }).eq('run_on', runDate)
+  let reminders = 0, bankReminders = 0, bankImported = 0, bankMatched = 0
+  for (const userId of userIds) { if (emailUserIds.has(userId)) { const result = await syncRecentForUser(userId, { restart: true, maxPages: 50 }); imported += result.imported; newUseful += result.newUseful; if (result.newUseful > 0) { const body=`${result.newUseful} nuove email utili trovate questo mese.`; await admin.from('notifications').insert({ user_id: userId, title: 'Nuove email finanziarie', body }); await sendPush(userId, 'SOLDI', body) } } if ((bankConnections ?? []).some(connection => connection.user_id === userId)) { try { const bankResult = await syncBanksForUser(userId); bankImported += bankResult.imported; bankMatched += bankResult.matched; if (bankResult.matched > 0) { const body = bankResult.matched === 1 ? 'Una fattura è stata riconosciuta come pagata dal movimento bancario.' : `${bankResult.matched} fatture sono state riconosciute come pagate dai movimenti bancari.`; await admin.from('notifications').insert({ user_id: userId, kind: 'bank_reconciliation', title: 'Pagamento riconosciuto', body }); await sendPush(userId, 'Pagamento riconosciuto', body, 'https://klajdi.vercel.app/?page=Fatture') } } catch { /* Un problema temporaneo della banca non blocca Gmail e promemoria. */ } } reminders += await sendInvoiceReminders(userId, runDate); bankReminders += await sendBankExpiryReminders(userId, runDate) }
+  await admin.from('scheduled_sync_runs').update({ completed_at: new Date().toISOString(), result: { imported, new_useful: newUseful, reminders, bank_reminders: bankReminders, bank_imported: bankImported, bank_matched: bankMatched, users: userIds.length } }).eq('run_on', runDate)
 }
 Deno.serve(async req => {
   if (req.method !== 'POST') return json({ error: 'Metodo non consentito.' }, 405)
