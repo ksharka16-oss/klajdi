@@ -17,6 +17,9 @@ export function spendingInsights(transactions,month=monthKey()){
 export function budgetProgress(transactions,budgets,month=monthKey()){
   return budgets.map(budget=>{const spent=transactions.filter(row=>row.kind==='expense'&&!row.is_transfer&&row.category_id===budget.category_id&&row.occurred_on?.startsWith(month)).reduce((sum,row)=>sum+Number(row.amount),0),limit=Number(budget.monthly_limit),percentage=limit?spent/limit*100:0;return{...budget,spent,limit,remaining:Math.max(0,limit-spent),percentage,status:percentage>=100?'exceeded':percentage>=80?'warning':'ok'}})
 }
+export function uncategorizedBankTransactions(transactions=[]){
+  return transactions.filter(row=>row.source==='bank'&&!row.is_transfer&&!row.transfer_status&&!row.category_id)
+}
 export const safeText=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
 export function authCredentials(values={}){
   const email=String(values.email||'').trim(),password=String(values.password||'');
