@@ -1,12 +1,13 @@
 import { adminClient, sha256 } from './gmail.ts'
-import { bankCategoryName, bankMatchConfidence, cleanBankText } from './bank.js'
+import { bankCategoryName, bankMatchConfidence, cleanBankText, ownTransferKey, ownTransferPairs, possibleOwnTransfer } from './bank.js'
 import { accountBalance, bankDescription, eb, transactionAmount, transactionRows } from './enablebanking.ts'
 
 export async function syncBanksForUser(userId: string) {
-  const admin = adminClient(), accounts = (await admin.from('accounts').select('*').eq('user_id', userId).eq('external_provider', 'enablebanking')).data ?? [], invoices = (await admin.from('invoices').select('id,supplier,amount,currency,iuv,due_on,issued_on,status,category_id').eq('user_id', userId).in('status', ['to_pay', 'paid'])).data ?? [], categories = (await admin.from('categories').select('id,name,kind').eq('user_id', userId)).data ?? []
+  const admin = adminClient(), accounts = (await admin.from('accounts').select('*').eq('user_id', userId).eq('external_provider', 'enablebanking')).data ?? [], invoices = (await admin.from('invoices').select('id,supplier,amount,currency,iuv,due_on,issued_on,status,category_id').eq('user_id', userId).in('status', ['to_pay', 'paid'])).data ?? [], categories = (await admin.from('categories').select('id,name,kind').eq('user_id', userId)).data ?? [], rules = (await admin.from('learning_rules').select('pattern,outcome').eq('user_id', userId).eq('rule_type', 'own_transfer').gte('confidence', .9)).data ?? []
+  const knownTransferKeys = rules.filter(rule => rule.outcome?.is_transfer === true).map(rule => rule.pattern?.key).filter(Boolean)
   const categoryId = (row: any) => { const name = bankCategoryName(row); return categories.find(category => category.name === name && (category.kind === row.kind || category.kind === 'both'))?.id ?? null }
   const invoiceIds = invoices.map(invoice => invoice.id), links = invoiceIds.length ? (await admin.from('reconciliations').select('invoice_id,status').eq('user_id', userId).in('invoice_id', invoiceIds)).data ?? [] : []
-  let imported = 0, duplicates = 0, matched = 0, review = 0
+  let imported = 0, duplicates = 0, matched = 0, review = 0, transferReview = 0, transfers = 0
   const matchedInvoices: Array<{ supplier: string; amount: number }> = []
   for (const account of accounts) {
     const id = encodeURIComponent(account.external_account_id), dateTo = new Date().toISOString().slice(0, 10), dateFrom = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10)
@@ -21,15 +22,19 @@ export async function syncBanksForUser(userId: string) {
       const fingerprint = `bank:${await sha256(`${occurredOn}|${kind}|${amount.toFixed(2)}|${cleanBankText(description)}`)}`
       const existing = await admin.from('transactions').select('id').eq('user_id', userId).eq('fingerprint', fingerprint).maybeSingle()
       if (existing.data) { duplicates++; continue }
-      const row = { occurred_on: occurredOn, description, amount, kind }, exact = invoices.filter(invoice => bankMatchConfidence(invoice, row) >= .8), strong = exact.filter(invoice => bankMatchConfidence(invoice, row) === 1), candidate = strong.length === 1 ? strong[0] : exact.length === 1 ? exact[0] : null, confidence = strong.length === 1 ? 1 : candidate ? .8 : 0
+      const row = { occurred_on: occurredOn, description, amount, kind }, learnedTransfer = possibleOwnTransfer(row, knownTransferKeys) && knownTransferKeys.includes(ownTransferKey(description)), exact = learnedTransfer ? [] : invoices.filter(invoice => bankMatchConfidence(invoice, row) >= .8), strong = exact.filter(invoice => bankMatchConfidence(invoice, row) === 1), candidate = strong.length === 1 ? strong[0] : exact.length === 1 ? exact[0] : null, confidence = strong.length === 1 ? 1 : candidate ? .8 : 0
       if (candidate && confidence === 1 && links.some(link => link.invoice_id === candidate.id && link.status === 'confirmed')) { duplicates++; continue }
-      const inserted = await admin.from('transactions').insert({ user_id: userId, account_id: account.id, category_id: candidate?.category_id ?? categoryId(row), kind, amount, currency: parsed.currency || account.currency || 'EUR', description, occurred_on: occurredOn, source: 'bank', external_id: source.transaction_id || source.transactionId || source.entry_reference || fingerprint.slice(5), fingerprint, reconciled: confidence === 1 }).select('id').single()
+      const inserted = await admin.from('transactions').insert({ user_id: userId, account_id: account.id, category_id: learnedTransfer ? null : candidate?.category_id ?? categoryId(row), kind, amount, currency: parsed.currency || account.currency || 'EUR', description, occurred_on: occurredOn, source: 'bank', external_id: source.transaction_id || source.transactionId || source.entry_reference || fingerprint.slice(5), fingerprint, reconciled: confidence === 1, is_transfer: learnedTransfer, transfer_status: learnedTransfer ? 'confirmed' : null }).select('id').single()
       if (inserted.error) { if (inserted.error.code === '23505') { duplicates++; continue } throw inserted.error } imported++
       if (candidate) { const linked = await admin.from('reconciliations').insert({ user_id: userId, invoice_id: candidate.id, transaction_id: inserted.data.id, status: confidence === 1 ? 'confirmed' : 'suggested', confidence, confirmed_at: confidence === 1 ? new Date().toISOString() : null }); if (!linked.error && confidence === 1) { await admin.from('invoices').update({ status: 'paid', updated_at: new Date().toISOString() }).eq('id', candidate.id).eq('user_id', userId); matched++; matchedInvoices.push({ supplier: candidate.supplier, amount: Number(candidate.amount) }) } else if (!linked.error) review++ }
     }
   }
-  const { data: uncategorized } = await admin.from('transactions').select('id,kind,description').eq('user_id', userId).eq('source', 'bank').is('category_id', null).limit(500)
+  const cutoff = new Date(Date.now() - 60 * 86400000).toISOString().slice(0, 10), { data: recent } = await admin.from('transactions').select('id,account_id,kind,amount,occurred_on,description,reconciled,is_transfer,transfer_status').eq('user_id', userId).eq('source', 'bank').gte('occurred_on', cutoff)
+  const pairedIds = new Set<string>()
+  for (const pair of ownTransferPairs(recent ?? [])) { const group = crypto.randomUUID(), updated = await admin.from('transactions').update({ is_transfer: true, transfer_status: 'confirmed', transfer_group_id: group, category_id: null, updated_at: new Date().toISOString() }).eq('user_id', userId).in('id', pair); if (!updated.error) { transfers += 1; pair.forEach(id => pairedIds.add(id)) } }
+  for (const transaction of recent ?? []) { if (!pairedIds.has(transaction.id) && !transaction.is_transfer && !transaction.transfer_status && possibleOwnTransfer(transaction, knownTransferKeys)) { const updated = await admin.from('transactions').update({ transfer_status: 'suggested', updated_at: new Date().toISOString() }).eq('id', transaction.id).eq('user_id', userId).is('transfer_status', null); if (!updated.error) transferReview += 1 } }
+  const { data: uncategorized } = await admin.from('transactions').select('id,kind,description,is_transfer').eq('user_id', userId).eq('source', 'bank').is('category_id', null).eq('is_transfer', false).limit(500)
   for (const transaction of uncategorized ?? []) { const inferred = categoryId(transaction); if (inferred) await admin.from('transactions').update({ category_id: inferred, updated_at: new Date().toISOString() }).eq('id', transaction.id).eq('user_id', userId).is('category_id', null) }
   await admin.from('bank_connections').update({ last_synced_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('user_id', userId).eq('provider', 'enablebanking').eq('status', 'linked')
-  return { imported, duplicates, matched, review, accounts: accounts.length, matchedInvoices }
+  return { imported, duplicates, matched, review, transferReview, transfers, accounts: accounts.length, matchedInvoices }
 }

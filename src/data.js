@@ -1,14 +1,14 @@
 export const money=(value,currency='EUR')=>new Intl.NumberFormat('it-IT',{style:'currency',currency}).format(Number(value||0));
 export const monthKey=(date=new Date())=>date.toISOString().slice(0,7);
 export function calculateSummary(transactions,invoices,month=monthKey()){
-  const income=transactions.filter(t=>t.kind==='income'&&t.occurred_on?.startsWith(month)).reduce((s,t)=>s+Number(t.amount),0);
-  const expenses=transactions.filter(t=>t.kind==='expense'&&t.occurred_on?.startsWith(month)).reduce((s,t)=>s+Number(t.amount),0);
+  const financial=transactions.filter(t=>!t.is_transfer),income=financial.filter(t=>t.kind==='income'&&t.occurred_on?.startsWith(month)).reduce((s,t)=>s+Number(t.amount),0);
+  const expenses=financial.filter(t=>t.kind==='expense'&&t.occurred_on?.startsWith(month)).reduce((s,t)=>s+Number(t.amount),0);
   const balance=transactions.reduce((s,t)=>s+(t.kind==='income'?1:-1)*Number(t.amount),0);
   const unpaid=invoices.filter(i=>i.status==='to_pay'),review=invoices.filter(i=>i.status==='to_review');
   return{income,expenses,balance,unpaid,review,savings:income-expenses};
 }
 export function spendingInsights(transactions,month=monthKey()){
-  const[year,number]=month.split('-').map(Number),previous=new Date(Date.UTC(year,number-2,1)).toISOString().slice(0,7),expenses=transactions.filter(row=>row.kind==='expense');
+  const[year,number]=month.split('-').map(Number),previous=new Date(Date.UTC(year,number-2,1)).toISOString().slice(0,7),expenses=transactions.filter(row=>row.kind==='expense'&&!row.is_transfer);
   const current=expenses.filter(row=>row.occurred_on?.startsWith(month)),previousRows=expenses.filter(row=>row.occurred_on?.startsWith(previous)),currentTotal=current.reduce((sum,row)=>sum+Number(row.amount),0),previousTotal=previousRows.reduce((sum,row)=>sum+Number(row.amount),0),groups=new Map();
   for(const row of current){const name=row.categories?.name||'Senza categoria';groups.set(name,(groups.get(name)||0)+Number(row.amount))}
   const categories=[...groups].map(([name,amount])=>({name,amount,percentage:currentTotal?amount/currentTotal*100:0})).sort((left,right)=>right.amount-left.amount);
