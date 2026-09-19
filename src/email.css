@@ -14,3 +14,8 @@
 .badge.normal,.badge.ignore{background:#202a3b;color:#a1acbf}
 @media(max-width:760px){.toolbar{gap:10px}.toolbar-actions{flex-direction:column;align-items:stretch}.email-head{align-items:flex-start;flex-direction:column}.email-head small{text-align:left}}
 @media(max-width:470px){.email-row .badge{grid-column:2;text-align:left;justify-self:start}}
+.chart .panel-head{display:flex;grid-template-columns:none;margin:0 0 18px}
+.chart .panel-head h2{margin-bottom:0}
+.chart .panel-head small{color:var(--muted);font-size:.7rem;text-align:right}
+.chart.category-chart>div:not(.panel-head):not(.empty){grid-template-columns:110px 1fr 90px}
+@media(max-width:470px){.chart.category-chart>div:not(.panel-head):not(.empty){grid-template-columns:85px 1fr 75px}}
