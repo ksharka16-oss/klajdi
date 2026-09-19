@@ -14,6 +14,9 @@ export function spendingInsights(transactions,month=monthKey()){
   const categories=[...groups].map(([name,amount])=>({name,amount,percentage:currentTotal?amount/currentTotal*100:0})).sort((left,right)=>right.amount-left.amount);
   return{month,previous,currentTotal,previousTotal,difference:currentTotal-previousTotal,categories,top:categories[0]||null}
 }
+export function budgetProgress(transactions,budgets,month=monthKey()){
+  return budgets.map(budget=>{const spent=transactions.filter(row=>row.kind==='expense'&&!row.is_transfer&&row.category_id===budget.category_id&&row.occurred_on?.startsWith(month)).reduce((sum,row)=>sum+Number(row.amount),0),limit=Number(budget.monthly_limit),percentage=limit?spent/limit*100:0;return{...budget,spent,limit,remaining:Math.max(0,limit-spent),percentage,status:percentage>=100?'exceeded':percentage>=80?'warning':'ok'}})
+}
 export const safeText=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
 export function authCredentials(values={}){
   const email=String(values.email||'').trim(),password=String(values.password||'');
