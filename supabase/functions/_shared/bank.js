@@ -19,3 +19,20 @@ export function bankConsentReminder(connection={},today=''){
   if(remaining===0)return{title:'Collegamento bancario in scadenza oggi',body:`Rinnova oggi l’autorizzazione di ${bank} per continuare gli aggiornamenti automatici.`};
   return{title:'Rinnova il collegamento bancario',body:`L’autorizzazione di ${bank} scade tra ${remaining} ${remaining===1?'giorno':'giorni'}. Rinnovala in SOLDI.`};
 }
+
+export function bankCategoryName(row={}){
+  const text=cleanBankText(row.description);
+  if(row.kind==='income'){
+    if(/stipendio|salary|emolument|competenze/.test(text))return'Stipendio';
+    if(/rimborso|storno|cashback/.test(text))return'Rimborsi';
+    return null
+  }
+  if(/asilo|nido|mensa|scuola|scolastic|retta/.test(text))return'Scuola e asilo';
+  if(/enel|plenitude|a2a|hera|energia|luce|gas|acqua|bolletta|tim |vodafone|windtre|fastweb/.test(`${text} `))return'Bollette';
+  if(/netflix|spotify|disney|amazon prime|apple\.com\/bill|google play|abbonamento/.test(text))return'Abbonamenti';
+  if(/esselunga|conad|coop |lidl|eurospin|carrefour|aldi|supermercat|alimentari/.test(`${text} `))return'Alimentari';
+  if(/carburante|benzina|diesel|q8|tamoil|telepass|autostrad|trenitalia|trasport|atm milano|eni station/.test(text))return'Trasporti';
+  if(/farmacia|parafarmacia|medic|dentist|ospedal|sanitari/.test(text))return'Salute';
+  if(/affitto|condominio|mutuo|ikea|leroy merlin|casa/.test(text))return'Casa';
+  return null
+}

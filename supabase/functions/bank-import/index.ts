@@ -1,5 +1,5 @@
 import { corsHeaders, currentUser, json, adminClient, sha256 } from '../_shared/gmail.ts'
-import { bankMatchConfidence, cleanBankText } from '../_shared/bank.js'
+import { bankCategoryName, bankMatchConfidence, cleanBankText } from '../_shared/bank.js'
 
 Deno.serve(async req => {
   const origin = req.headers.get('Origin')
@@ -10,6 +10,7 @@ Deno.serve(async req => {
   const body = await req.json().catch(() => ({})), rows = Array.isArray(body.rows) ? body.rows.slice(0, 500) : []
   if (!rows.length) return json({ error: 'Nessun movimento da importare.' }, 400, origin)
   const admin = adminClient()
+  const categories = (await admin.from('categories').select('id,name,kind').eq('user_id', user.id)).data ?? []
   const { data: invoices, error: invoiceError } = await admin.from('invoices').select('id,supplier,amount,currency,iuv,due_on,issued_on,status,category_id').eq('user_id', user.id).in('status', ['to_pay', 'paid'])
   if (invoiceError) return json({ error: 'Impossibile leggere le fatture.' }, 500, origin)
   const invoiceIds = (invoices ?? []).map(invoice => invoice.id)
@@ -28,7 +29,8 @@ Deno.serve(async req => {
     const confidence = strong.length === 1 ? 1 : candidate ? 0.8 : 0
     const prior = candidate ? reconciliations.find(link => link.invoice_id === candidate.id && link.status === 'confirmed') : null
     if (prior && confidence === 1) { duplicates++; continue }
-    const inserted = await admin.from('transactions').insert({ user_id: user.id, category_id: candidate?.category_id ?? null, kind, amount, currency: 'EUR', description, occurred_on: occurredOn, source: 'bank', external_id: fingerprint.slice(5), fingerprint, reconciled: confidence === 1 }).select('id').single()
+    const categoryName = bankCategoryName(row), categoryId = categories.find(category => category.name === categoryName && (category.kind === kind || category.kind === 'both'))?.id ?? null
+    const inserted = await admin.from('transactions').insert({ user_id: user.id, category_id: candidate?.category_id ?? categoryId, kind, amount, currency: 'EUR', description, occurred_on: occurredOn, source: 'bank', external_id: fingerprint.slice(5), fingerprint, reconciled: confidence === 1 }).select('id').single()
     if (inserted.error) { if (inserted.error.code === '23505') { duplicates++; continue } return json({ error: 'Importazione interrotta: nessun dato è stato duplicato.' }, 500, origin) }
     imported++
     if (candidate) {
