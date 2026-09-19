@@ -1,6 +1,6 @@
 import { adminClient, sha256 } from './gmail.ts'
 import { bankCategoryName, bankMatchConfidence, cleanBankText, merchantRuleKey, ownTransferKey, ownTransferPairs, possibleOwnTransfer } from './bank.js'
-import { accountBalance, bankDescription, eb, isBookedTransaction, isTransactionInRange, transactionAmount, transactionContinuation, transactionDate, transactionRows } from './enablebanking.ts'
+import { accountBalance, bankDescription, eb, isBookedTransaction, isExpiredBankSession, isTransactionInRange, transactionAmount, transactionContinuation, transactionDate, transactionRows } from './enablebanking.ts'
 
 async function transactionPages(accountId: string, query: string) {
   const firstPage = await eb(`/accounts/${accountId}/transactions?${query}`), pages = [firstPage], seenContinuations = new Set<string>()
@@ -15,9 +15,12 @@ export async function syncBanksForUser(userId: string) {
   const categoryId = (row: any) => { const learned = rules.find(rule => rule.rule_type === 'merchant_category' && rule.pattern?.key === merchantRuleKey(row.description))?.outcome?.category_id; if (learned && categories.some(category => category.id === learned && (category.kind === row.kind || category.kind === 'both'))) return learned; const name = bankCategoryName(row); return categories.find(category => category.name === name && (category.kind === row.kind || category.kind === 'both'))?.id ?? null }
   const invoiceIds = invoices.map(invoice => invoice.id), links = invoiceIds.length ? (await admin.from('reconciliations').select('invoice_id,status').eq('user_id', userId).in('invoice_id', invoiceIds)).data ?? [] : []
   let imported = 0, duplicates = 0, matched = 0, review = 0, transferReview = 0, transfers = 0
-  const accountResults: Array<{ institution: string; last4: string; received: number; booked: number; pages: number; fallback: boolean }> = []
+  const accountResults: Array<{ institution: string; last4: string; received: number; booked: number; pages: number; fallback: boolean; error?: string }> = [], failedConnections = new Set<string>()
   const matchedInvoices: Array<{ supplier: string; amount: number }> = []
   for (const account of accounts) {
+    const connectionId = String(account.bank_connection_id ?? ''), label = { institution: String(account.institution ?? 'Banca'), last4: String(account.iban_last4 ?? '') }
+    if (connectionId && failedConnections.has(connectionId)) { accountResults.push({ ...label, received: 0, booked: 0, pages: 0, fallback: false, error: 'Autorizzazione bancaria scaduta.' }); continue }
+    try {
     const id = encodeURIComponent(account.external_account_id), dateTo = new Date().toISOString().slice(0, 10), dateFrom = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10)
     const [initialPages, balances] = await Promise.all([transactionPages(id, `date_from=${dateFrom}&date_to=${dateTo}`), eb(`/accounts/${id}/balances`)]), balance = accountBalance(balances)
     const accountUpdate: any = { currency: balance.currency, updated_at: new Date().toISOString() }; if (balance.amount != null) accountUpdate.current_balance = balance.amount
@@ -25,7 +28,7 @@ export async function syncBanksForUser(userId: string) {
     let pages = initialPages, receivedRows = pages.flatMap(transactionRows), fallback = false
     if (!receivedRows.length) { pages = await transactionPages(id, `date_from=${dateFrom}&date_to=${dateTo}&strategy=longest`); receivedRows = pages.flatMap(transactionRows); fallback = true }
     const bookedRows = receivedRows.filter(isBookedTransaction).filter(row => isTransactionInRange(row, dateFrom, dateTo))
-    accountResults.push({ institution: String(account.institution ?? 'Banca'), last4: String(account.iban_last4 ?? ''), received: receivedRows.length, booked: bookedRows.length, pages: pages.length, fallback })
+    accountResults.push({ ...label, received: receivedRows.length, booked: bookedRows.length, pages: pages.length, fallback })
     for (const source of bookedRows) {
       const parsed = transactionAmount(source), signed = parsed.amount, amount = Math.abs(signed), indicator = String(source.credit_debit_indicator ?? source.creditDebitIndicator ?? '').toUpperCase(), kind = indicator === 'DBIT' || indicator === 'DEBIT' || signed < 0 ? 'expense' : 'income', occurredOn = transactionDate(source), description = bankDescription(source)
       if (!occurredOn || !Number.isFinite(amount) || amount <= 0) continue
@@ -37,6 +40,11 @@ export async function syncBanksForUser(userId: string) {
       const inserted = await admin.from('transactions').insert({ user_id: userId, account_id: account.id, category_id: learnedTransfer ? null : candidate?.category_id ?? categoryId(row), kind, amount, currency: parsed.currency || account.currency || 'EUR', description, occurred_on: occurredOn, source: 'bank', external_id: source.transaction_id || source.transactionId || source.entry_reference || fingerprint.slice(5), fingerprint, reconciled: confidence === 1, is_transfer: learnedTransfer, transfer_status: learnedTransfer ? 'confirmed' : null }).select('id').single()
       if (inserted.error) { if (inserted.error.code === '23505') { duplicates++; continue } throw inserted.error } imported++
       if (candidate) { const linked = await admin.from('reconciliations').insert({ user_id: userId, invoice_id: candidate.id, transaction_id: inserted.data.id, status: confidence === 1 ? 'confirmed' : 'suggested', confidence, confirmed_at: confidence === 1 ? new Date().toISOString() : null }); if (!linked.error && confidence === 1) { await admin.from('invoices').update({ status: 'paid', updated_at: new Date().toISOString() }).eq('id', candidate.id).eq('user_id', userId); matched++; matchedInvoices.push({ supplier: candidate.supplier, amount: Number(candidate.amount) }) } else if (!linked.error) review++ }
+    }
+    } catch (error) {
+      const expired = isExpiredBankSession(error), message = expired ? 'Autorizzazione bancaria scaduta.' : String(error?.message ?? 'Aggiornamento bancario non riuscito.')
+      accountResults.push({ ...label, received: 0, booked: 0, pages: 0, fallback: false, error: message })
+      if (expired && connectionId) { failedConnections.add(connectionId); await admin.from('bank_connections').update({ status: 'expired', updated_at: new Date().toISOString() }).eq('id', connectionId).eq('user_id', userId) }
     }
   }
   const cutoff = new Date(Date.now() - 60 * 86400000).toISOString().slice(0, 10), { data: recent } = await admin.from('transactions').select('id,account_id,kind,amount,occurred_on,description,reconciled,is_transfer,transfer_status').eq('user_id', userId).eq('source', 'bank').gte('occurred_on', cutoff)

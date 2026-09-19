@@ -95,3 +95,8 @@ export function isTransactionInRange(row: any, dateFrom: string, dateTo: string)
   const value = transactionDate(row)
   return Boolean(value && value >= dateFrom && value <= dateTo)
 }
+
+export function isExpiredBankSession(error: any) {
+  const message = String(error?.message ?? error ?? '')
+  return /session\s+(?:is\s+)?expired|expired\s+session/i.test(message)
+}
