@@ -43,6 +43,10 @@ export function ownTransferKey(description=''){
   const text=cleanBankText(description),card=text.match(/(?:carta|prepagata)\D{0,20}(\d{4})(?:\D|$)/)?.[1];
   return card?`card:${card}`:null
 }
+export function ownTransferReference(description=''){
+  const text=String(description??'').toUpperCase();
+  return text.match(/(?:\bTRN\b|\bCRO\b|\bRIF(?:ERIMENTO)?\b|\bN\.)\D{0,20}([A-Z0-9]{10,35})/)?.[1]??null
+}
 export function possibleOwnTransfer(row={},knownKeys=[]){
   if(row.reconciled||row.transfer_status==='confirmed'||row.transfer_status==='rejected')return false;
   const key=ownTransferKey(row.description);
@@ -52,7 +56,8 @@ export function possibleOwnTransfer(row={},knownKeys=[]){
 export function ownTransferPairs(rows=[]){
   const available=rows.filter(row=>row.account_id&&!row.reconciled&&row.transfer_status!=='rejected'&&!row.is_transfer),used=new Set(),pairs=[];
   for(const outgoing of available.filter(row=>row.kind==='expense')){
-    const candidates=available.filter(incoming=>incoming.kind==='income'&&incoming.account_id!==outgoing.account_id&&!used.has(incoming.id)&&Math.abs(Number(incoming.amount)-Number(outgoing.amount))<.01&&Math.abs((Date.parse(incoming.occurred_on)-Date.parse(outgoing.occurred_on))/86400000)<=3&&(possibleOwnTransfer(outgoing)||possibleOwnTransfer(incoming)));
+    const outgoingReference=ownTransferReference(outgoing.description);
+    const candidates=available.filter(incoming=>{const sameReference=Boolean(outgoingReference&&outgoingReference===ownTransferReference(incoming.description)),sameAmount=Math.abs(Number(incoming.amount)-Number(outgoing.amount))<.01;return incoming.kind==='income'&&incoming.account_id!==outgoing.account_id&&!used.has(incoming.id)&&Math.abs((Date.parse(incoming.occurred_on)-Date.parse(outgoing.occurred_on))/86400000)<=3&&(sameReference||(sameAmount&&(possibleOwnTransfer(outgoing)||possibleOwnTransfer(incoming))))});
     if(candidates.length===1&&!used.has(outgoing.id)){pairs.push([outgoing.id,candidates[0].id]);used.add(outgoing.id);used.add(candidates[0].id)}
   }
   return pairs
