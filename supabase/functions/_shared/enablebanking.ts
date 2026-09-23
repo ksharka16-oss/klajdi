@@ -57,7 +57,11 @@ export function isRetryableEnableBankingStatus(status: number) {
 
 export async function eb(path: string, init: RequestInit = {}) {
   for (let attempt = 0; attempt < 3; attempt++) {
-    const response = await fetch(`${baseUrl}${path}`, { ...init, headers: { Accept: 'application/json', ...(init.body ? { 'Content-Type': 'application/json' } : {}), Authorization: `Bearer ${await bearer()}`, ...(init.headers ?? {}) } })
+    const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), 15_000)
+    let response: Response
+    try { response = await fetch(`${baseUrl}${path}`, { ...init, signal: init.signal ?? controller.signal, headers: { Accept: 'application/json', ...(init.body ? { 'Content-Type': 'application/json' } : {}), Authorization: `Bearer ${await bearer()}`, ...(init.headers ?? {}) } }) }
+    catch (error) { if (error?.name === 'AbortError') throw new Error('La banca non ha risposto entro 15 secondi. Riprova più tardi.'); throw error }
+    finally { clearTimeout(timeout) }
     const data = await response.json().catch(() => ({}))
     if (response.ok) return data
     const errorCode = String(data?.code ?? data?.error?.code ?? '')
