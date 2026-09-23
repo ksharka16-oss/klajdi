@@ -34,6 +34,8 @@ Deno.serve(async (req) => {
     provider: 'gmail',
     email_address: profile.email,
     provider_account_id: profile.id,
+    connection_status: 'connected',
+    last_connection_error: null,
   }, { onConflict: 'user_id,provider,provider_account_id' }).select('id').single()
   if (accountError || !account) return finish('error', 'Impossibile salvare l’account Gmail.')
 
@@ -51,4 +53,3 @@ Deno.serve(async (req) => {
   if (credentialError) return finish('error', 'Impossibile proteggere le credenziali Gmail.')
   return finish('connected')
 })
-
