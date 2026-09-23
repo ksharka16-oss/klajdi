@@ -160,7 +160,7 @@ async function syncBanks(automatic=false){
   state.bankSyncing=true
   if(!automatic)render()
   try{
-    const{data,error}=await supabase.functions.invoke('bank-sync')
+    const{data,error}=await supabase.functions.invoke('bank-sync',{body:{interactive:true}})
     if(error||!data){if(!automatic){state.error=await functionError(error,data?.error||'Aggiornamento bancario non riuscito.');render()}return}
     if(!automatic){const issues=(data.accountResults??[]).filter(item=>item.error||item.booked===0).map(item=>`${item.institution}${item.last4?` ••••${item.last4}`:''}: ${item.error||'nessun movimento contabilizzato restituito dalla banca'}`).join(' · ');state.notice=`Banche aggiornate: ${data.imported} nuovi movimenti, ${data.duplicates} già presenti, ${data.matched} fatture riconciliate.${issues?` ${issues}`:''}`}
     await loadData()
