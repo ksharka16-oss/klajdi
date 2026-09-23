@@ -2,6 +2,20 @@ const baseUrl = 'https://api.enablebanking.com'
 const retryableStatuses = new Set([429, 500, 502, 503, 504])
 const sleep = (milliseconds: number) => new Promise(resolve => setTimeout(resolve, milliseconds))
 
+export function enableBankingPsuHeaders(source: Headers) {
+  const forwarded = source.get('x-forwarded-for')?.split(',')[0]?.trim(), ip = source.get('cf-connecting-ip') || source.get('x-real-ip') || forwarded
+  const values: Record<string, string | null> = {
+    'Psu-Ip-Address': ip ?? null,
+    'Psu-User-Agent': source.get('user-agent'),
+    'Psu-Referer': source.get('referer') || source.get('origin'),
+    'Psu-Accept': source.get('accept'),
+    'Psu-Accept-Charset': source.get('accept-charset') || 'utf-8',
+    'Psu-Accept-Encoding': source.get('accept-encoding'),
+    'Psu-Accept-Language': source.get('accept-language'),
+  }
+  return Object.fromEntries(Object.entries(values).filter(([, value]) => value && !/[\r\n]/.test(value)))
+}
+
 const encode = (value: Uint8Array | string) => {
   const bytes = typeof value === 'string' ? new TextEncoder().encode(value) : value
   let binary = ''; for (const byte of bytes) binary += String.fromCharCode(byte)
@@ -46,10 +60,12 @@ export async function eb(path: string, init: RequestInit = {}) {
     const response = await fetch(`${baseUrl}${path}`, { ...init, headers: { Accept: 'application/json', ...(init.body ? { 'Content-Type': 'application/json' } : {}), Authorization: `Bearer ${await bearer()}`, ...(init.headers ?? {}) } })
     const data = await response.json().catch(() => ({}))
     if (response.ok) return data
-    if (isRetryableEnableBankingStatus(response.status) && attempt < 2) {
+    const errorCode = String(data?.code ?? data?.error?.code ?? '')
+    if (isRetryableEnableBankingStatus(response.status) && errorCode !== 'ASPSP_RATE_LIMIT_EXCEEDED' && attempt < 2) {
       await sleep(enableBankingRetryDelayMs(response.headers.get('Retry-After'), attempt))
       continue
     }
+    if (errorCode === 'ASPSP_RATE_LIMIT_EXCEEDED') throw new Error('Limite giornaliero della banca raggiunto. Riprova tra 6 ore.')
     const detail = data?.detail ?? data?.message ?? data?.error?.message ?? data?.error
     throw new Error(typeof detail === 'string' ? detail : `Errore Enable Banking (${response.status}).`)
   }
