@@ -4,14 +4,14 @@ import { accountBalance, bankDescription, bankSyncRange, eb, isBookedTransaction
 
 const pauseBankRequests = (milliseconds = 400) => new Promise(resolve => setTimeout(resolve, milliseconds))
 
-async function transactionPages(accountId: string, query: string) {
-  const firstPage = await eb(`/accounts/${accountId}/transactions?${query}`), pages = [firstPage], seenContinuations = new Set<string>()
+async function transactionPages(accountId: string, query: string, headers?: HeadersInit) {
+  const firstPage = await eb(`/accounts/${accountId}/transactions?${query}`, { headers }), pages = [firstPage], seenContinuations = new Set<string>()
   let continuation = transactionContinuation(firstPage)
-  for (let page = 1; continuation && page < 100 && !seenContinuations.has(continuation); page++) { seenContinuations.add(continuation); const next = await eb(`/accounts/${accountId}/transactions?continuation_key=${encodeURIComponent(continuation)}`); pages.push(next); continuation = transactionContinuation(next) }
+  for (let page = 1; continuation && page < 100 && !seenContinuations.has(continuation); page++) { seenContinuations.add(continuation); const next = await eb(`/accounts/${accountId}/transactions?continuation_key=${encodeURIComponent(continuation)}`, { headers }); pages.push(next); continuation = transactionContinuation(next) }
   return pages
 }
 
-export async function syncBanksForUser(userId: string) {
+export async function syncBanksForUser(userId: string, options: { psuHeaders?: HeadersInit } = {}) {
   const admin = adminClient(), linkedConnections = (await admin.from('bank_connections').select('id').eq('user_id', userId).eq('provider', 'enablebanking').eq('status', 'linked')).data ?? [], linkedIds = linkedConnections.map(connection => connection.id)
   const profile = (await admin.from('profiles').select('transactions_start_on,timezone').eq('id', userId).maybeSingle()).data
   const syncRange = bankSyncRange(profile?.transactions_start_on, profile?.timezone || 'Europe/Rome')
@@ -28,13 +28,13 @@ export async function syncBanksForUser(userId: string) {
     if (connectionId && failedConnections.has(connectionId)) { accountResults.push({ ...label, received: 0, booked: 0, pages: 0, fallback: false, error: 'Autorizzazione bancaria scaduta.' }); continue }
     try {
     const id = encodeURIComponent(account.external_account_id), { dateFrom, dateTo } = syncRange
-    const initialPages = await transactionPages(id, `date_from=${dateFrom}&date_to=${dateTo}`)
+    const initialPages = await transactionPages(id, `date_from=${dateFrom}&date_to=${dateTo}`, options.psuHeaders)
     await pauseBankRequests()
-    const balances = await eb(`/accounts/${id}/balances`), balance = accountBalance(balances)
+    const balances = await eb(`/accounts/${id}/balances`, { headers: options.psuHeaders }), balance = accountBalance(balances)
     const accountUpdate: any = { currency: balance.currency, updated_at: new Date().toISOString() }; if (balance.amount != null) accountUpdate.current_balance = balance.amount
     await admin.from('accounts').update(accountUpdate).eq('id', account.id).eq('user_id', userId)
     let pages = initialPages, receivedRows = pages.flatMap(transactionRows), fallback = false
-    if (!receivedRows.length) { await pauseBankRequests(); pages = await transactionPages(id, `date_from=${dateFrom}&date_to=${dateTo}&strategy=longest`); receivedRows = pages.flatMap(transactionRows); fallback = true }
+    if (!receivedRows.length) { await pauseBankRequests(); pages = await transactionPages(id, `date_from=${dateFrom}&date_to=${dateTo}&strategy=longest`, options.psuHeaders); receivedRows = pages.flatMap(transactionRows); fallback = true }
     const bookedRows = receivedRows.filter(isBookedTransaction).filter(row => isTransactionInRange(row, dateFrom, dateTo))
     accountResults.push({ ...label, received: receivedRows.length, booked: bookedRows.length, pages: pages.length, fallback })
     for (const source of bookedRows) {
