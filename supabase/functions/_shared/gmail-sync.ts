@@ -171,13 +171,21 @@ async function syncAccountPage(account: any, userId: string, restart: boolean) {
 
 export async function syncRecentForUser(userId: string, options: { restart?: boolean; maxPages?: number } = {}) {
   const admin = adminClient(); let imported = 0, newUseful = 0, hasMore = true, page = 0, accountCount = 0
+  const failedAccountIds = new Set<string>()
   while (hasMore && page < (options.maxPages ?? 1)) {
     const { data: accounts, error } = await admin.from('email_accounts').select('id,sync_cursor').eq('user_id', userId).eq('provider', 'gmail')
     if (error) throw error
     accountCount = accounts?.length ?? 0
     if (!accountCount) return { imported, newUseful, hasMore: false, accounts: 0 }
-    const results = await Promise.all(accounts!.map(account => syncAccountPage(account, userId, Boolean(options.restart && page === 0))))
+    const activeAccounts = accounts!.filter(account => !failedAccountIds.has(account.id))
+    if (!activeAccounts.length) break
+    const settled = await Promise.allSettled(activeAccounts.map(account => syncAccountPage(account, userId, Boolean(options.restart && page === 0))))
+    const results = settled.flatMap((result, index) => {
+      if (result.status === 'fulfilled') return [result.value]
+      failedAccountIds.add(activeAccounts[index].id)
+      return []
+    })
     imported += results.reduce((n, value) => n + value.imported, 0); newUseful += results.reduce((n, value) => n + value.newUseful, 0); hasMore = results.some(value => value.hasMore); page += 1
   }
-  return { imported, newUseful, hasMore, accounts: accountCount }
+  return { imported, newUseful, hasMore, accounts: accountCount, failedAccounts: failedAccountIds.size }
 }
