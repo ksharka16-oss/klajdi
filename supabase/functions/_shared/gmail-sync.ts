@@ -34,14 +34,17 @@ async function refreshToken(refresh: string) {
 async function accessTokenFor(accountId: string, userId: string) {
   const admin = adminClient()
   const { data: credential } = await admin.from('gmail_credentials').select('*').eq('email_account_id', accountId).eq('user_id', userId).maybeSingle()
-  if (!credential) return null
+  if (!credential) { await admin.from('email_accounts').update({ connection_status: 'reconnect_required', last_connection_error: 'Autorizzazione Gmail mancante.' }).eq('id', accountId).eq('user_id', userId); return null }
   let accessToken = await decryptToken(credential.access_token_encrypted)
   if (!credential.token_expires_at || new Date(credential.token_expires_at).getTime() < Date.now() + 60000) {
-    if (!credential.refresh_token_encrypted) throw new Error('Ricollega questo account Gmail.')
-    const refreshed = await refreshToken(await decryptToken(credential.refresh_token_encrypted))
+    if (!credential.refresh_token_encrypted) { await admin.from('email_accounts').update({ connection_status: 'reconnect_required', last_connection_error: 'Ricollega questo account Gmail.' }).eq('id', accountId).eq('user_id', userId); throw new Error('Ricollega questo account Gmail.') }
+    let refreshed
+    try { refreshed = await refreshToken(await decryptToken(credential.refresh_token_encrypted)) }
+    catch (error) { await admin.from('email_accounts').update({ connection_status: 'reconnect_required', last_connection_error: 'Autorizzazione Google scaduta.' }).eq('id', accountId).eq('user_id', userId); throw error }
     accessToken = refreshed.access_token
     await admin.from('gmail_credentials').update({ access_token_encrypted: await encryptToken(accessToken), token_expires_at: new Date(Date.now() + Number(refreshed.expires_in ?? 3600) * 1000).toISOString(), updated_at: new Date().toISOString() }).eq('email_account_id', accountId)
   }
+  await admin.from('email_accounts').update({ connection_status: 'connected', last_connection_error: null }).eq('id', accountId).eq('user_id', userId)
   return accessToken
 }
 
