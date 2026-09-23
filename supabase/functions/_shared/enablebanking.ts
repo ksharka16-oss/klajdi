@@ -1,4 +1,6 @@
 const baseUrl = 'https://api.enablebanking.com'
+const retryableStatuses = new Set([429, 500, 502, 503, 504])
+const sleep = (milliseconds: number) => new Promise(resolve => setTimeout(resolve, milliseconds))
 
 const encode = (value: Uint8Array | string) => {
   const bytes = typeof value === 'string' ? new TextEncoder().encode(value) : value
@@ -26,14 +28,32 @@ async function bearer() {
   return `${message}.${encode(signature)}`
 }
 
+export function enableBankingRetryDelayMs(retryAfter: string | null, attempt: number, now = Date.now()) {
+  const seconds = Number(retryAfter)
+  const headerDelay = retryAfter && Number.isFinite(seconds)
+    ? seconds * 1000
+    : retryAfter ? Date.parse(retryAfter) - now : NaN
+  const fallback = 750 * 2 ** attempt
+  return Math.min(10_000, Math.max(300, Number.isFinite(headerDelay) ? headerDelay : fallback))
+}
+
+export function isRetryableEnableBankingStatus(status: number) {
+  return retryableStatuses.has(status)
+}
+
 export async function eb(path: string, init: RequestInit = {}) {
-  const response = await fetch(`${baseUrl}${path}`, { ...init, headers: { Accept: 'application/json', ...(init.body ? { 'Content-Type': 'application/json' } : {}), Authorization: `Bearer ${await bearer()}`, ...(init.headers ?? {}) } })
-  const data = await response.json().catch(() => ({}))
-  if (!response.ok) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const response = await fetch(`${baseUrl}${path}`, { ...init, headers: { Accept: 'application/json', ...(init.body ? { 'Content-Type': 'application/json' } : {}), Authorization: `Bearer ${await bearer()}`, ...(init.headers ?? {}) } })
+    const data = await response.json().catch(() => ({}))
+    if (response.ok) return data
+    if (isRetryableEnableBankingStatus(response.status) && attempt < 2) {
+      await sleep(enableBankingRetryDelayMs(response.headers.get('Retry-After'), attempt))
+      continue
+    }
     const detail = data?.detail ?? data?.message ?? data?.error?.message ?? data?.error
     throw new Error(typeof detail === 'string' ? detail : `Errore Enable Banking (${response.status}).`)
   }
-  return data
+  throw new Error('Enable Banking non è temporaneamente raggiungibile.')
 }
 
 export function randomState() {

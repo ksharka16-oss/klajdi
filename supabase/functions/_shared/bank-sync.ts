@@ -2,6 +2,8 @@ import { adminClient, sha256 } from './gmail.ts'
 import { bankCategoryName, bankMatchConfidence, cleanBankText, merchantRuleKey, ownTransferKey, ownTransferPairs, possibleOwnTransfer } from './bank.js'
 import { accountBalance, bankDescription, bankSyncRange, eb, isBookedTransaction, isExpiredBankSession, isTransactionInRange, transactionAmount, transactionContinuation, transactionDate, transactionRows } from './enablebanking.ts'
 
+const pauseBankRequests = (milliseconds = 400) => new Promise(resolve => setTimeout(resolve, milliseconds))
+
 async function transactionPages(accountId: string, query: string) {
   const firstPage = await eb(`/accounts/${accountId}/transactions?${query}`), pages = [firstPage], seenContinuations = new Set<string>()
   let continuation = transactionContinuation(firstPage)
@@ -26,11 +28,13 @@ export async function syncBanksForUser(userId: string) {
     if (connectionId && failedConnections.has(connectionId)) { accountResults.push({ ...label, received: 0, booked: 0, pages: 0, fallback: false, error: 'Autorizzazione bancaria scaduta.' }); continue }
     try {
     const id = encodeURIComponent(account.external_account_id), { dateFrom, dateTo } = syncRange
-    const [initialPages, balances] = await Promise.all([transactionPages(id, `date_from=${dateFrom}&date_to=${dateTo}`), eb(`/accounts/${id}/balances`)]), balance = accountBalance(balances)
+    const initialPages = await transactionPages(id, `date_from=${dateFrom}&date_to=${dateTo}`)
+    await pauseBankRequests()
+    const balances = await eb(`/accounts/${id}/balances`), balance = accountBalance(balances)
     const accountUpdate: any = { currency: balance.currency, updated_at: new Date().toISOString() }; if (balance.amount != null) accountUpdate.current_balance = balance.amount
     await admin.from('accounts').update(accountUpdate).eq('id', account.id).eq('user_id', userId)
     let pages = initialPages, receivedRows = pages.flatMap(transactionRows), fallback = false
-    if (!receivedRows.length) { pages = await transactionPages(id, `date_from=${dateFrom}&date_to=${dateTo}&strategy=longest`); receivedRows = pages.flatMap(transactionRows); fallback = true }
+    if (!receivedRows.length) { await pauseBankRequests(); pages = await transactionPages(id, `date_from=${dateFrom}&date_to=${dateTo}&strategy=longest`); receivedRows = pages.flatMap(transactionRows); fallback = true }
     const bookedRows = receivedRows.filter(isBookedTransaction).filter(row => isTransactionInRange(row, dateFrom, dateTo))
     accountResults.push({ ...label, received: receivedRows.length, booked: bookedRows.length, pages: pages.length, fallback })
     for (const source of bookedRows) {
@@ -49,6 +53,7 @@ export async function syncBanksForUser(userId: string) {
       accountResults.push({ ...label, received: 0, booked: 0, pages: 0, fallback: false, error: message })
       if (expired && connectionId) { failedConnections.add(connectionId); await admin.from('bank_connections').update({ status: 'expired', updated_at: new Date().toISOString() }).eq('id', connectionId).eq('user_id', userId).eq('status', 'linked') }
     }
+    await pauseBankRequests(600)
   }
   const cutoff = new Date(Date.now() - 60 * 86400000).toISOString().slice(0, 10), { data: recent } = await admin.from('transactions').select('id,account_id,kind,amount,occurred_on,description,reconciled,is_transfer,transfer_status').eq('user_id', userId).eq('source', 'bank').gte('occurred_on', cutoff)
   const pairedIds = new Set<string>()
