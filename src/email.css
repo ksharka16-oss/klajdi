@@ -2,9 +2,12 @@
 .toolbar-actions{display:flex;gap:9px}
 .toolbar-actions svg{width:17px}
 .mail-accounts{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px;margin-bottom:14px}
-.mail-account{display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:center;padding:15px;border:1px solid var(--line);border-radius:14px;background:var(--panel)}
+.mail-account{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:center;padding:15px;border:1px solid var(--line);border-radius:14px;background:var(--panel)}
+.mail-account.mail-reconnect{border-color:#713543;background:linear-gradient(145deg,#241827,#121d31)}
+.mail-account>button{white-space:nowrap}
 .mail-account strong,.mail-account small{display:block}
 .mail-account small{margin-top:4px;color:var(--muted);font-size:.7rem}
+@media(max-width:560px){.mail-account>button{grid-column:2/-1;justify-self:start}}
 .email-head{padding:15px 0 8px}
 .email-head small{max-width:270px;color:var(--muted);text-align:right}
 .email-row .badge{margin:0;white-space:nowrap}
