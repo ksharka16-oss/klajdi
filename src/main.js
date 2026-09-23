@@ -69,7 +69,7 @@ function shell(content,view=''){
   document.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>setPage(b.dataset.page));
   document.querySelector('#menu').onclick=()=>document.querySelector('.app-shell').classList.add('menu-open');
   document.querySelector('#scrim').onclick=()=>document.querySelector('.app-shell').classList.remove('menu-open');
-  document.querySelector('#notification-bell').onclick=()=>setPage('Home');
+  document.querySelector('#notification-bell').onclick=()=>setPage(deadlineCount?'Scadenze':'Home');
   document.querySelector('#logout').onclick=()=>supabase.auth.signOut();draw();
 }
 function metric(label,value,glyph,tone=''){return`<article class="metric"><div class="metric-icon ${tone}">${ico(glyph)}</div><p>${label}</p><strong class="${tone}">${value}</strong><small>Aggiornato dal database</small></article>`}
