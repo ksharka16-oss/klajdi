@@ -9,6 +9,9 @@ Deno.serve(async (req) => {
   const user = await currentUser(req)
   if (!user) return json({ error: 'Sessione non valida.' }, 401, origin)
 
+  const body = await req.json().catch(() => ({}))
+  const { data: requestedAccount } = body?.email_account_id ? await adminClient().from('email_accounts').select('email_address').eq('id', body.email_account_id).eq('user_id', user.id).eq('provider', 'gmail').maybeSingle() : { data: null }
+
   const state = crypto.randomUUID() + crypto.randomUUID()
   const { error } = await adminClient().from('gmail_oauth_states').insert({
     user_id: user.id,
@@ -27,6 +30,6 @@ Deno.serve(async (req) => {
     include_granted_scopes: 'true',
     state,
   })
+  if (requestedAccount?.email_address) params.set('login_hint', requestedAccount.email_address)
   return json({ url: `https://accounts.google.com/o/oauth2/v2/auth?${params}` }, 200, origin)
 })
-
