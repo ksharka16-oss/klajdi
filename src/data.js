@@ -17,6 +17,11 @@ export function invoiceDueState(dueOn,today=new Date().toISOString().slice(0,10)
   const due=Date.parse(`${dueOn}T00:00:00Z`),now=Date.parse(`${today}T00:00:00Z`);if(Number.isNaN(due)||Number.isNaN(now))return{key:'no_date',label:'Senza data',days:null};
   const days=Math.round((due-now)/86400000);if(days<0)return{key:'overdue',label:`Scaduta da ${Math.abs(days)} ${Math.abs(days)===1?'giorno':'giorni'}`,days};if(days===0)return{key:'today',label:'Scade oggi',days};if(days<=7)return{key:'soon',label:`Scade tra ${days} ${days===1?'giorno':'giorni'}`,days};return{key:'later',label:`Scade tra ${days} giorni`,days}
 }
+export function pagopaPaymentData(invoice={}){
+  const extracted=invoice.extracted_data||{},noticeCode=String(invoice.iuv||extracted.iuv||extracted.notice_code||'').replace(/\D/g,''),ocrText=String(invoice.ocr_text||''),labeledTaxId=ocrText.match(/(?:cod(?:ice)?\.?\s*fiscale\s+(?:dell['’]?\s*)?ente\s+creditore|c\.?\s*f\.?\s*ente\s+creditore)\s*[:\-]?\s*(\d{11})/i)?.[1],creditorTaxId=String(extracted.creditor_tax_id||extracted.creditor_fiscal_code||labeledTaxId||'').replace(/\D/g,'');
+  if(noticeCode.length<15||noticeCode.length>18)return null;
+  return{noticeCode,creditorTaxId:creditorTaxId.length===11?creditorTaxId:'',amount:Number(invoice.amount||extracted.amount||0)}
+}
 export function bankBalanceSummary(accounts=[]){
   const unique=new Map();for(const[index,account]of accounts.filter(account=>account.external_provider==='enablebanking').entries()){const institution=String(account.institution||account.name||'').trim().toLocaleLowerCase('it-IT'),key=institution&&account.iban_last4?`${institution}:${account.iban_last4}`:account.id||`row:${index}`,previous=unique.get(key);if(!previous||String(account.updated_at||'')>String(previous.updated_at||''))unique.set(key,account)}
   const connected=[...unique.values()],eur=connected.filter(account=>(account.currency||'EUR').toUpperCase()==='EUR'),total=eur.reduce((sum,account)=>sum+Number(account.current_balance||0),0);
