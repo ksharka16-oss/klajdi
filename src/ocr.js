@@ -12,9 +12,10 @@ export function parseInvoiceText(rawText){
   const paymentReferences=[...singleLine.matchAll(/(?:oggetto\s+(?:del\s+)?pagamento|pagamento\s+sollecito)\D{0,45}\bN[.°º]?\s*([A-Z0-9/_-]{4,40})/gi)].map(match=>tidy(match[1])).sort((a,b)=>b.replace(/\D/g,'').length-a.replace(/\D/g,'').length);
   const invoiceNumber=paymentReferences[0]||firstMatch(singleLine,[/(?:numero\s+fattura|n[.°º]\s*fattura|fattura\s+n[.°º]?)\s*[:\-]?\s*([A-Z0-9/_-]{2,40})/i,/(?:ddt|d\.d\.t\.|bolla)\s*(?:n(?:umero)?[.°º]?)?\s*[:\-]?\s*([A-Z0-9/_-]{2,40})/i,/(?:numero\s+documento|documento(?:\s+di\s+trasporto)?\s+n(?:umero)?[.°º]?)\s*[:\-]?\s*([A-Z0-9/_-]{2,40})/i]);
   const noticeCodes=[...singleLine.matchAll(/\b((?:\d{4}\s+){4}\d{2})\b/g)].map(match=>match[1]),iuvText=firstMatch(singleLine,[/\bIUV\s*[:\-]?\s*([0-9 ]{12,25})/i,/\b([0-9 ]{12,25})\s+CODICE\s+IUV\b/i])||noticeCodes.at(-1)||firstMatch(singleLine,[/\bCODICE\s+AVVISO\s*[:\-]?\s*([0-9 ]{16,25})/i]),iuv=iuvText?.replace(/\s/g,'')||null;
+  const creditorTaxId=firstMatch(singleLine,[/(?:cod(?:ice)?\.?\s*fiscale\s+(?:dell['’]?\s*)?ente\s+creditore|c\.?\s*f\.?\s*ente\s+creditore)\s*[:\-]?\s*(\d{11})/i]);
   const issuedOn=isoDate(firstMatch(singleLine,[/(?:data\s+(?:documento|emissione|ddt|bolla)|emess[ao]\s+il)\s*[:\-]?\s*(\d{1,2}[/.\-]\d{1,2}[/.\-]\d{4})/i,/(?:\bddt\b|\bbolla\b|documento\s+di\s+trasporto)\D{0,60}\bdata\s*[:\-]?\s*(\d{1,2}[/.\-]\d{1,2}[/.\-]\d{4})/i,/\bdata\s*[:\-]\s*(\d{1,2}[/.\-]\d{1,2}[/.\-]\d{4})/i]));
   const dueOn=isoDate(firstMatch(singleLine,[/(?:scadenza|pagare\s+entro|entro\s+il)\s*[:\-]?\s*(\d{1,2}[/.\-]\d{1,2}[/.\-]\d{4})/i]));
-  const extracted={supplier,amount,invoice_number:invoiceNumber,iuv,issued_on:issuedOn,due_on:dueOn};
+  const extracted={supplier,amount,invoice_number:invoiceNumber,iuv,creditor_tax_id:creditorTaxId,issued_on:issuedOn,due_on:dueOn};
   const found=Object.values(extracted).filter(Boolean).length;
   return{extracted,confidence:Math.min(.95,.25+found*.11)};
 }
