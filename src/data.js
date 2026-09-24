@@ -1,4 +1,9 @@
 export const money=(value,currency='EUR')=>new Intl.NumberFormat('it-IT',{style:'currency',currency}).format(Number(value||0));
+export function transactionsCsv(rows=[],accounts=[]){
+  const sourceLabels={manual:'Manuale',bank:'Banca',invoice:'Fattura',email:'Gmail',import:'Importazione'},cell=value=>`"${String(value??'').replaceAll('"','""')}"`,headers=['Data','Tipo','Descrizione','Categoria','Conto','IBAN finale','Importo','Valuta','Origine','Note'];
+  const body=rows.map(row=>{const account=accounts.find(item=>String(item.id)===String(row.account_id)),type=row.is_transfer?'Trasferimento':row.kind==='income'?'Entrata':'Spesa',signed=(row.kind==='income'?1:-1)*Number(row.amount||0);return[row.occurred_on||'',type,row.description||'',row.is_transfer?'Trasferimento tra conti':row.categories?.name||'Senza categoria',account?.institution||account?.name||'',account?.iban_last4||'',signed.toFixed(2).replace('.',','),row.currency||'EUR',sourceLabels[row.source]||'Registrato',row.notes||''].map(cell).join(';')});
+  return `\uFEFF${headers.map(cell).join(';')}\r\n${body.join('\r\n')}`
+}
 export const monthKey=(date=new Date())=>date.toISOString().slice(0,7);
 export function calculateSummary(transactions,invoices,month=monthKey()){
   const financial=transactions.filter(t=>!t.is_transfer),income=financial.filter(t=>t.kind==='income'&&t.occurred_on?.startsWith(month)).reduce((s,t)=>s+Number(t.amount),0);
