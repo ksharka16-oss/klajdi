@@ -1,4 +1,12 @@
 project_id = "tgpkewsutphlwmkylemr"
 
+[auth.passkey]
+enabled = true
+
+[auth.webauthn]
+rp_display_name = "SOLDI"
+rp_id = "klajdi.vercel.app"
+rp_origins = ["https://klajdi.vercel.app"]
+
 [functions.gmail-scheduled-sync]
 verify_jwt = false
