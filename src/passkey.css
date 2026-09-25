@@ -1,0 +1,10 @@
+.passkey-button{display:flex;align-items:center;justify-content:center;gap:9px;padding:13px 15px;border:1px solid #6472df;border-radius:12px;background:linear-gradient(135deg,#3547a8,#6d75ec);color:#fff;font-weight:800;box-shadow:0 12px 28px #3547a833;cursor:pointer}
+.passkey-button svg{width:20px}
+.passkey-button:disabled{opacity:.55;cursor:wait}
+.auth-divider{display:flex;align-items:center;gap:12px;margin:18px 0;color:var(--muted);font-size:.68rem}
+.auth-divider::before,.auth-divider::after{content:"";height:1px;flex:1;background:var(--line)}
+.passkey-list{display:grid;gap:7px;margin-top:12px}
+.passkey-list>div{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 10px;border:1px solid var(--line);border-radius:10px;background:#0b1628}
+.passkey-list span{display:flex;align-items:center;gap:8px;font-size:.72rem}
+.passkey-list svg{width:15px;color:#aeb5ff}
+.link-danger{border:0;background:transparent;color:var(--red);font-size:.7rem;cursor:pointer}
