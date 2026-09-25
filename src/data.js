@@ -55,6 +55,15 @@ export function authErrorMessage(message=''){
   if(normalized.includes('user already registered'))return 'Questa email è già registrata. Premi “Accedi”.';
   return message||'Non è stato possibile completare l’accesso.';
 }
+export function passkeyErrorMessage(error={}){
+  const code=String(error.code||''),message=String(error.message||error||''),normalized=`${code} ${message}`.toLowerCase();
+  if(normalized.includes('passkey_disabled'))return 'Face ID non è ancora attivo nel servizio cloud.';
+  if(normalized.includes('webauthn_credential_exists'))return 'Face ID è già attivo su questo dispositivo.';
+  if(normalized.includes('webauthn_credential_not_found'))return 'Questo Face ID non è registrato per SOLDI. Accedi con la password e attivalo nelle Impostazioni.';
+  if(normalized.includes('notallowederror')||normalized.includes('ceremony_aborted')||normalized.includes('the operation either timed out or was not allowed'))return 'Verifica Face ID annullata. Puoi riprovare quando vuoi.';
+  if(normalized.includes('browser does not support webauthn'))return 'Face ID non è disponibile in questo browser.';
+  return message||'Non è stato possibile completare la verifica Face ID.';
+}
 export const invoiceFileTypes=['application/pdf','image/jpeg','image/png','image/webp'];
 export function validateInvoiceFile(file){
   if(!file)return'';
